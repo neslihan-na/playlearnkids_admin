@@ -1,0 +1,338 @@
+{
+    "age_7_8": [
+        {
+            "id": 1,
+            "question": "2 + 3 = ?",
+            "options": [
+                "4",
+                "5",
+                "6",
+                "7"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 2,
+            "question": "Aşağıdakilerden hangisi meyvedir?",
+            "options": [
+                "Havuç",
+                "Elma",
+                "Patates",
+                "Soğan"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 3,
+            "question": "Bir haftada kaç gün vardır?",
+            "options": [
+                "5",
+                "6",
+                "7",
+                "8"
+            ],
+            "correctAnswer": 2
+        },
+        {
+            "id": 4,
+            "question": "10 - 4 = ?",
+            "options": [
+                "5",
+                "6",
+                "7",
+                "8"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 5,
+            "question": "Aşağıdaki şekillerden hangisi üçgendir?",
+            "options": [
+                "○",
+                "△",
+                "□",
+                "◇"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 6,
+            "question": "3 × 2 = ?",
+            "options": [
+                "4",
+                "5",
+                "6",
+                "7"
+            ],
+            "correctAnswer": 2
+        },
+        {
+            "id": 7,
+            "question": "Aşağıdakilerden hangisi hayvandır?",
+            "options": [
+                "Masa",
+                "Kedi",
+                "Kalem",
+                "Kitap"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 8,
+            "question": "12 ÷ 3 = ?",
+            "options": [
+                "3",
+                "4",
+                "5",
+                "6"
+            ],
+            "correctAnswer": 1
+        }
+    ],
+    "age_9_10": [
+        {
+            "id": 1,
+            "question": "Aşağıdaki sayı dizisinde sıradaki sayı hangisidir?\n5, 10, 15, 20, ?",
+            "options": [
+                "22",
+                "25",
+                "30",
+                "35"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 2,
+            "question": "Bir dikdörtgenin uzun kenarı 8 cm, kısa kenarı 5 cm'dir. Çevresi kaç cm'dir?",
+            "options": [
+                "13",
+                "26",
+                "40",
+                "18"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 3,
+            "question": "Aşağıdaki kelimelerden hangisi diğerlerinden farklıdır?",
+            "options": [
+                "Elma",
+                "Armut",
+                "Havuç",
+                "Portakal"
+            ],
+            "correctAnswer": 2
+        },
+        {
+            "id": 4,
+            "question": "24 ÷ 6 = ?",
+            "options": [
+                "3",
+                "4",
+                "5",
+                "6"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 5,
+            "question": "Bir sayının 3 katı 15 ise, bu sayı kaçtır?",
+            "options": [
+                "3",
+                "5",
+                "6",
+                "9"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 6,
+            "question": "Aşağıdaki örüntüde boş yere hangi şekil gelmelidir?\n○ △ □ ○ △ ?",
+            "options": [
+                "○",
+                "△",
+                "□",
+                "◇"
+            ],
+            "correctAnswer": 2
+        },
+        {
+            "id": 7,
+            "question": "45 + 38 = ?",
+            "options": [
+                "73",
+                "83",
+                "93",
+                "103"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 8,
+            "question": "Bir kare nin bir kenarı 6 cm ise, çevresi kaç cm'dir?",
+            "options": [
+                "12",
+                "18",
+                "24",
+                "36"
+            ],
+            "correctAnswer": 2
+        },
+        {
+            "id": 9,
+            "question": "7 × 8 = ?",
+            "options": [
+                "54",
+                "56",
+                "63",
+                "64"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 10,
+            "question": "Aşağıdaki işlemlerden hangisinin sonucu farklıdır?",
+            "options": [
+                "4 × 5",
+                "2 × 10",
+                "5 × 4",
+                "3 × 7"
+            ],
+            "correctAnswer": 3
+        }
+    ],
+    "age_11_12": [
+        {
+            "id": 1,
+            "question": "Aşağıdaki sayı dizisinde sıradaki sayı hangisidir?\n2, 4, 8, 16, 32, ?",
+            "options": [
+                "48",
+                "64",
+                "56",
+                "72"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 2,
+            "question": "Bir sınıfta 24 öğrenci vardır. Bunların 3/8'i kız öğrencidir. Sınıfta kaç erkek öğrenci vardır?",
+            "options": [
+                "9",
+                "15",
+                "12",
+                "18"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 3,
+            "question": "Bir dikdörtgenin uzun kenarı 12 cm, kısa kenarı 8 cm'dir. Bu dikdörtgenin çevresi kaç cm'dir?",
+            "options": [
+                "20",
+                "40",
+                "96",
+                "48"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 4,
+            "question": "OKUL kelimesinin harfleri yer değiştirilerek kaç farklı anlamlı veya anlamsız kelime yazılabilir?",
+            "options": [
+                "24",
+                "60",
+                "120",
+                "12"
+            ],
+            "correctAnswer": 2
+        },
+        {
+            "id": 5,
+            "question": "Bir sayının 5 katının 3 fazlası 38 ise, bu sayı kaçtır?",
+            "options": [
+                "5",
+                "7",
+                "8",
+                "6"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 6,
+            "question": "Bir kitabın 1/4'ünü okuyan Ayşe, 60 sayfa okumuştur. Kitap kaç sayfadır?",
+            "options": [
+                "180",
+                "240",
+                "200",
+                "160"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 7,
+            "question": "3, 7, 15, 31, 63, ? dizisinde sıradaki sayı hangisidir?",
+            "options": [
+                "95",
+                "127",
+                "125",
+                "100"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 8,
+            "question": "Bir küpün 6 yüzü vardır. 8 küpün toplam kaç yüzü vardır?",
+            "options": [
+                "48",
+                "42",
+                "36",
+                "54"
+            ],
+            "correctAnswer": 0
+        },
+        {
+            "id": 9,
+            "question": "ANNE kelimesinde kaç tane harf vardır?",
+            "options": [
+                "2",
+                "3",
+                "4",
+                "5"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 10,
+            "question": "Bir saat 3:15'i gösteriyorsa, akrep ile yelkovan arasındaki açı kaç derecedir?",
+            "options": [
+                "0°",
+                "7.5°",
+                "15°",
+                "22.5°"
+            ],
+            "correctAnswer": 1
+        },
+        {
+            "id": 11,
+            "question": "Aşağıdaki kelime gruplarından hangisi mantıksal olarak farklıdır?",
+            "options": [
+                "Kalem - Defter",
+                "Masa - Sandalye",
+                "Çatal - Kaşık",
+                "Güneş - Ay"
+            ],
+            "correctAnswer": 3
+        },
+        {
+            "id": 12,
+            "question": "Aşağıdaki şekillerden hangisi simetri eksenine sahip değildir?",
+            "options": [
+                "Kare",
+                "Eşkenar Üçgen",
+                "Düzensiz Dörtgen",
+                "Daire"
+            ],
+            "correctAnswer": 2
+        }
+    ]
+}
