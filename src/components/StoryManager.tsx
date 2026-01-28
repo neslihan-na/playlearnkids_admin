@@ -6,8 +6,7 @@ import {
   updateStory,
   deleteStory,
   toggleStoryPublishStatus,
-  getStoryStats,
-  searchStories
+  getStoryStats
 } from '../utils/storyFunctions';
 import StoryForm from './StoryForm';
 import StoryReader from './StoryReader';
@@ -58,8 +57,14 @@ const StoryManager: React.FC = () => {
     }
   };
 
-  // Hikaye arama ve filtreleme
-  const applyFilters = () => {
+  // İlk yükleme
+  useEffect(() => {
+    loadStories();
+    loadStats();
+  }, []);
+
+  // Filtreleri uygula
+  useEffect(() => {
     let filtered = [...stories];
 
     // Arama filtresi
@@ -80,17 +85,6 @@ const StoryManager: React.FC = () => {
     }
 
     setFilteredStories(filtered);
-  };
-
-  // İlk yükleme
-  useEffect(() => {
-    loadStories();
-    loadStats();
-  }, []);
-
-  // Filtreleri uygula
-  useEffect(() => {
-    applyFilters();
   }, [stories, searchTerm, filterPublished]);
 
   // Yeni hikaye ekleme

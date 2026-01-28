@@ -30,7 +30,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [lastAction, setLastAction] = useState<string>('');
   const [allUsers, setAllUsers] = useState<AdminPanelUser[]>([]);
-  const [showUserList, setShowUserList] = useState(false);
+
   const [selectedUser, setSelectedUser] = useState<AdminPanelUser | null>(null);
   const [selectedDetailUser, setSelectedDetailUser] = useState<AdminPanelUser | null>(null);
   const [showUserEdit, setShowUserEdit] = useState(false);
@@ -81,7 +81,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
 
       if (result.success) {
         setAllUsers(result.users || []);
-        setShowUserList(true);
+
         setLastAction(`✅ ${result.users?.length || 0} kullanıcı getirildi`);
       } else {
         setLastAction(`❌ Kullanıcılar getirilemedi`);
