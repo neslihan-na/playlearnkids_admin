@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { database, getDatabasePath } from '../firebase';
+import { ref, get } from 'firebase/database';
 import {
   getAllUsers,
   adminUserManagement,
@@ -39,6 +41,68 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
   const [activeTab, setActiveTab] = useState<'users' | 'stories' | 'similarity' | 'wordhunt' | 'videos' | 'notifications' | 'database' | 'admin-actions' | 'messages'>('users');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [hasLoadedInitially, setHasLoadedInitially] = useState(false);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const lastUnreadCount = useRef(0);
+  const isFirstCheck = useRef(true);
+
+  // Browser Notification & Sound Logic
+  useEffect(() => {
+    // Request notification permission
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+
+    const checkUnreadMessages = async () => {
+      try {
+        const usersPath = getDatabasePath('').replace(/\/$/, '');
+        const usersRef = ref(database, usersPath);
+        const usersSnapshot = await get(usersRef);
+
+        if (usersSnapshot.exists()) {
+          const userIds = Object.keys(usersSnapshot.val());
+          let totalUnread = 0;
+
+          await Promise.all(userIds.map(async (userId) => {
+            try {
+              const msgRef = ref(database, `user_messages/${userId}`);
+              const msgSnapshot = await get(msgRef);
+              if (msgSnapshot.exists()) {
+                const messages = msgSnapshot.val();
+                const unread = Object.values(messages).filter((m: any) => m.sender === 'user' && !m.read).length;
+                totalUnread += unread;
+              }
+            } catch (e) { }
+          }));
+
+          setUnreadMessageCount(totalUnread);
+
+          // If new unread messages arrived AND it's not the initial load
+          if (totalUnread > lastUnreadCount.current && !isFirstCheck.current) {
+            // Play sound
+            const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+            audio.play().catch(e => console.log('Sound play blocked'));
+
+            // Show Browser Notification
+            if ("Notification" in window && Notification.permission === "granted") {
+              new Notification("Yeni Mesaj!", {
+                body: `${totalUnread} okunmamış mesajınız var.`,
+                icon: "/favicon.ico"
+              });
+            }
+          }
+          lastUnreadCount.current = totalUnread;
+          isFirstCheck.current = false;
+        }
+      } catch (error) {
+        console.error("Error checking unread messages:", error);
+      }
+    };
+
+    checkUnreadMessages();
+    const interval = setInterval(checkUnreadMessages, 45000); // Check every 45 seconds
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Otomatik kullanıcı listeleme
   useEffect(() => {
@@ -270,6 +334,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
             onClick={() => setActiveTab('messages')}
           >
             💬 {!sidebarCollapsed && 'Mesajlar'}
+            {unreadMessageCount > 0 && (
+              <span className="notification-badge">{unreadMessageCount}</span>
+            )}
           </button>
 
           <div className="sidebar-divider"></div>
@@ -503,7 +570,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                           <div className="input-with-icon">
                             <input
                               type={typeof value === 'number' ? 'number' : 'text'}
-                              value={value === null || value === undefined ? '' : value}
+                              value={(value === null || value === undefined) ? '' : (value as any)}
                               readOnly={isReadOnly}
                               onChange={(e) => setSelectedUser({
                                 ...selectedUser,

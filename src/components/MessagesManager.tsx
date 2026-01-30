@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { database } from '../firebase';
+import { database, getDatabasePath } from '../firebase';
 import { ref, onValue, push, update, off, get } from 'firebase/database';
 import './MessagesManager.css';
 
@@ -26,6 +26,7 @@ const MessagesManager: React.FC = () => {
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
     const [replyText, setReplyText] = useState('');
     const [loading, setLoading] = useState(true);
+    const [debugInfo, setDebugInfo] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // Scroll to bottom when messages change
@@ -35,70 +36,152 @@ const MessagesManager: React.FC = () => {
         }
     }, [conversations, selectedUserId]);
 
+    // Load conversations by iterating users (workaround for permission denied on root)
     useEffect(() => {
-        const messagesRef = ref(database, 'user_messages');
-        const usersRef = ref(database, 'users');
+        let isMounted = true;
+        const usersPath = getDatabasePath('').replace(/\/$/, '');
+        const usersRef = ref(database, usersPath);
 
-        // Listen to all messages
-        const messageListener = onValue(messagesRef, async (snapshot) => {
-            if (!snapshot.exists()) {
-                setConversations([]);
-                setLoading(false);
-                return;
+        const loadAllData = async () => {
+            try {
+                let info = `Env Path: ${usersPath}\n`;
+
+                // 1. Get all users first
+                const usersSnapshot = await get(usersRef);
+                let usersData: any = {};
+                let userIds: string[] = [];
+
+                if (usersSnapshot.exists()) {
+                    usersData = usersSnapshot.val();
+                    userIds = Object.keys(usersData);
+                    info += `Users Found: ${userIds.length}\n`;
+                } else {
+                    info += `Users Found: 0 (Snapshot empty)\n`;
+                }
+
+                // FORCE CHECK: Add the specific user ID if missing
+                const targetId = "user_ios_28012026_vw7j4p";
+                if (!userIds.includes(targetId)) {
+                    userIds.push(targetId);
+                    info += `Force Added: ${targetId}\n`;
+                }
+
+                // 2. Fetch messages for each user individually
+                const conversationsData: Conversation[] = [];
+                let msgFoundCount = 0;
+
+                await Promise.all(userIds.map(async (userId) => {
+                    try {
+                        const userMessagesRef = ref(database, `user_messages/${userId}`);
+                        const messagesSnapshot = await get(userMessagesRef);
+
+                        if (messagesSnapshot.exists()) {
+                            msgFoundCount++;
+                            const userMessagesObj = messagesSnapshot.val();
+                            const messagesList: Message[] = Object.entries(userMessagesObj).map(([key, value]: [string, any]) => ({
+                                id: key,
+                                ...value,
+                            }));
+
+                            // Sort messages
+                            messagesList.sort((a, b) => a.createdAt - b.createdAt);
+
+                            const unreadCount = messagesList.filter((m) => m.sender === 'user' && !m.read).length;
+                            const lastMessage = messagesList.length > 0 ? messagesList[messagesList.length - 1] : null;
+
+                            // Get username
+                            let username = 'Bilinmeyen Kullanıcı';
+                            if (usersData[userId]) {
+                                if (usersData[userId].username) username = usersData[userId].username;
+                                else if (usersData[userId].name) username = usersData[userId].name;
+                            } else if (userId === targetId) {
+                                username = "Debug Hedef User";
+                            } else if (userId.length < 20 && !userId.includes('-')) {
+                                username = userId;
+                            }
+
+                            conversationsData.push({
+                                userId,
+                                username,
+                                messages: messagesList,
+                                unreadCount,
+                                lastMessage
+                            });
+                        }
+                    } catch (e: any) {
+                        info += `Err ${userId.substring(0, 10)}: ${e.code || e.message}\n`;
+                    }
+                }));
+
+                // 3. Sort conversations
+                conversationsData.sort((a, b) => {
+                    const timeA = a.lastMessage?.createdAt || 0;
+                    const timeB = b.lastMessage?.createdAt || 0;
+                    return timeB - timeA;
+                });
+
+                if (isMounted) {
+                    setConversations(conversationsData);
+                    setLoading(false);
+                    info += `Msgs Found For: ${msgFoundCount} users\n`;
+                    setDebugInfo(info);
+                }
+
+            } catch (error: any) {
+                console.error("Error loading messages:", error);
+                if (isMounted) {
+                    setLoading(false);
+                    setDebugInfo(`Error: ${error.message}`);
+                    alert("Mesajlar yüklenirken bir sorun oluştu: " + error.message);
+                }
             }
+        };
 
-            const allMessagesData = snapshot.val();
-            const userIds = Object.keys(allMessagesData);
+        loadAllData();
 
-            // Fetch user info for names (snapshot for one-time fetch, or listener if names change often - one-time is enough here)
-            const usersSnapshot = await get(usersRef);
-            const usersData = usersSnapshot.exists() ? usersSnapshot.val() : {};
+        // Refresh every 30 seconds to simulate realtime for sidebar
+        const intervalId = setInterval(loadAllData, 30000);
 
-            const newConversations: Conversation[] = userIds.map((userId) => {
-                const userMessagesObj = allMessagesData[userId];
+        return () => {
+            isMounted = false;
+            clearInterval(intervalId);
+        };
+    }, []);
+
+    // Listen to real-time updates ONLY for the selected conversation
+    useEffect(() => {
+        if (!selectedUserId) return;
+
+        const handleRealtimeUpdate = (snapshot: any) => {
+            if (snapshot.exists()) {
+                const userMessagesObj = snapshot.val();
                 const messagesList: Message[] = Object.entries(userMessagesObj).map(([key, value]: [string, any]) => ({
                     id: key,
                     ...value,
                 }));
-
-                // Sort messages by date
                 messagesList.sort((a, b) => a.createdAt - b.createdAt);
 
-                const unreadCount = messagesList.filter((m) => m.sender === 'user' && !m.read).length;
-                const lastMessage = messagesList.length > 0 ? messagesList[messagesList.length - 1] : null;
+                setConversations(prev => prev.map(conv => {
+                    if (conv.userId === selectedUserId) {
+                        return {
+                            ...conv,
+                            messages: messagesList,
+                            lastMessage: messagesList[messagesList.length - 1],
+                            unreadCount: 0 // We're viewing it, so count is 0 locally (actual read status updated by other effect)
+                        };
+                    }
+                    return conv;
+                }));
+            }
+        };
 
-                // Try to find username safely
-                let username = 'Bilinmeyen Kullanıcı';
-                if (usersData[userId] && usersData[userId].username) {
-                    username = usersData[userId].username;
-                } else if (usersData[userId] && usersData[userId].name) {
-                    username = usersData[userId].name;
-                }
-
-                return {
-                    userId,
-                    username,
-                    messages: messagesList,
-                    unreadCount,
-                    lastMessage,
-                };
-            });
-
-            // Sort conversations by last message date (newest first)
-            newConversations.sort((a, b) => {
-                const timeA = a.lastMessage?.createdAt || 0;
-                const timeB = b.lastMessage?.createdAt || 0;
-                return timeB - timeA;
-            });
-
-            setConversations(newConversations);
-            setLoading(false);
-        });
+        const activeChatRef = ref(database, `user_messages/${selectedUserId}`);
+        const listener = onValue(activeChatRef, handleRealtimeUpdate);
 
         return () => {
-            off(messagesRef, 'value', messageListener);
+            off(activeChatRef, 'value', listener);
         };
-    }, []);
+    }, [selectedUserId]);
 
     // Mark messages as read when a conversation is selected
     useEffect(() => {
@@ -120,7 +203,7 @@ const MessagesManager: React.FC = () => {
 
         try {
             const messagesRef = ref(database, `user_messages/${selectedUserId}`);
-            const newMessageRef = push(messagesRef);
+
 
             await push(messagesRef, {
                 userId: selectedUserId,
@@ -183,6 +266,10 @@ const MessagesManager: React.FC = () => {
                             </div>
                         ))
                     )}
+                </div>
+                <div style={{ padding: '10px', fontSize: '10px', color: '#666', borderTop: '1px solid #eee' }}>
+                    <p>Debug Info:</p>
+                    <pre>{debugInfo}</pre>
                 </div>
             </div>
 
