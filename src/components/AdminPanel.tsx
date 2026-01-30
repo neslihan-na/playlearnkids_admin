@@ -14,6 +14,7 @@ import SimilarityQuestionsManager from './SimilarityQuestionsManager';
 import WordHuntQuestionsManager from './WordHuntQuestionsManager';
 import VideoManager from './VideoManager';
 import NotificationManager from './NotificationManager';
+import MessagesManager from './MessagesManager';
 import './AdminPanel.css';
 
 interface AdminPanelProps {
@@ -35,7 +36,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
   const [selectedDetailUser, setSelectedDetailUser] = useState<AdminPanelUser | null>(null);
   const [showUserEdit, setShowUserEdit] = useState(false);
   const [syncStatus, setSyncStatus] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'users' | 'stories' | 'similarity' | 'wordhunt' | 'videos' | 'notifications' | 'database' | 'admin-actions'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'stories' | 'similarity' | 'wordhunt' | 'videos' | 'notifications' | 'database' | 'admin-actions' | 'messages'>('users');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [hasLoadedInitially, setHasLoadedInitially] = useState(false);
 
@@ -264,6 +265,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
             📬 {!sidebarCollapsed && 'Bildirim Gönder'}
           </button>
 
+          <button
+            className={`tab-button ${activeTab === 'messages' ? 'active' : ''}`}
+            onClick={() => setActiveTab('messages')}
+          >
+            💬 {!sidebarCollapsed && 'Mesajlar'}
+          </button>
+
           <div className="sidebar-divider"></div>
 
           <button
@@ -379,6 +387,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
             <VideoManager />
           ) : activeTab === 'notifications' ? (
             <NotificationManager />
+          ) : activeTab === 'messages' ? (
+            <MessagesManager />
           ) : activeTab === 'admin-actions' ? (
             <>
               <div className="admin-section">
