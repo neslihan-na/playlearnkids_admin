@@ -1,5 +1,5 @@
 {
-    "name": "playlearnkids-admin",
+    "name": "playlearnkidsadmin",
     "compatibility_date": "2026-01-30",
     "assets": {
         "directory": "./build"
