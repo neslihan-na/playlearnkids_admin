@@ -79,13 +79,17 @@ const HighFiveManager: React.FC<HighFiveManagerProps> = ({ users, onRefresh }) =
             // Use getDatabasePath to automatically handle environment (test vs regular users)
             const receiverPath = getDatabasePath(receiverId);
             const receiverHighFivesRef = ref(database, `${receiverPath}/highFives/${senderId}`);
+            const receiverHighFivesLegacyRef = ref(database, `${receiverPath}/high_fives/${senderId}`);
 
-            // Get current count if exists
+            // Get current count if exists (check both)
             const snapshot = await get(receiverHighFivesRef);
+            const snapshotLegacy = await get(receiverHighFivesLegacyRef);
+
             let currentCount = 0;
             if (snapshot.exists()) {
-                const data = snapshot.val();
-                currentCount = data.count || 0;
+                currentCount = snapshot.val().count || 0;
+            } else if (snapshotLegacy.exists()) {
+                currentCount = snapshotLegacy.val().count || 0;
             }
 
             const highFiveData = {
@@ -96,7 +100,22 @@ const HighFiveManager: React.FC<HighFiveManagerProps> = ({ users, onRefresh }) =
                 viewed: false
             };
 
-            await update(receiverHighFivesRef, highFiveData);
+            // Write to BOTH paths to ensure compatibility (Receiver side)
+            const updates: Record<string, any> = {};
+            updates[`${receiverPath}/highFives/${senderId}`] = highFiveData;
+            updates[`${receiverPath}/high_fives/${senderId}`] = highFiveData;
+
+            // Write to SENDER's "Sent" nodes as requested (Sender side)
+            const senderPath = getDatabasePath(senderId);
+            const sentData = {
+                ...highFiveData,
+                receiverId: receiverId,
+                receiverName: receiver.username || 'Kullanıcı'
+            };
+            updates[`${senderPath}/highFiveSent/${receiverId}`] = sentData;
+            updates[`${senderPath}/highFivesSent/${receiverId}`] = sentData; // Backup plural
+
+            await update(ref(database), updates);
 
             // 2. Send Notification
             // Reuse logic similar to NotificationManager
@@ -179,17 +198,26 @@ const HighFiveManager: React.FC<HighFiveManagerProps> = ({ users, onRefresh }) =
         setStatus(null);
 
         try {
-            // 1. Delete from receiver
+            // 1. Delete from receiver (both paths)
             const receiverPath = getDatabasePath(rId);
-            const receiverHighFiveRef = ref(database, `${receiverPath}/highFives/${sId}`);
-            await set(receiverHighFiveRef, null);
+            const updates: Record<string, any> = {};
+            updates[`${receiverPath}/highFives/${sId}`] = null;
+            updates[`${receiverPath}/high_fives/${sId}`] = null;
+            updates[`${receiverPath}/highFiveSent/${sId}`] = null;
+            updates[`${receiverPath}/highFivesSent/${sId}`] = null;
 
-            // 2. If mutual, delete from sender too (in case they also sent back)
+            // 2. If mutual, delete from sender too
             if (mutual) {
                 const senderPath = getDatabasePath(sId);
-                const senderHighFiveRef = ref(database, `${senderPath}/highFives/${rId}`);
-                await set(senderHighFiveRef, null);
+                updates[`${senderPath}/highFives/${rId}`] = null;
+                updates[`${senderPath}/high_fives/${rId}`] = null;
+
+                // Also remove "Sent" records from sender
+                updates[`${senderPath}/highFiveSent/${rId}`] = null;
+                updates[`${senderPath}/highFivesSent/${rId}`] = null;
             }
+
+            await update(ref(database), updates);
 
             setStatus({ type: 'success', message: 'Beşlik(ler) başarıyla silindi.' });
 
