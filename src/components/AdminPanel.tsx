@@ -17,6 +17,7 @@ import WordHuntQuestionsManager from './WordHuntQuestionsManager';
 import VideoManager from './VideoManager';
 import NotificationManager from './NotificationManager';
 import MessagesManager from './MessagesManager';
+import HighFiveManager from './HighFiveManager';
 import './AdminPanel.css';
 
 interface AdminPanelProps {
@@ -38,7 +39,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
   const [selectedDetailUser, setSelectedDetailUser] = useState<AdminPanelUser | null>(null);
   const [showUserEdit, setShowUserEdit] = useState(false);
   const [syncStatus, setSyncStatus] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'users' | 'stories' | 'similarity' | 'wordhunt' | 'videos' | 'notifications' | 'database' | 'admin-actions' | 'messages'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'stories' | 'similarity' | 'wordhunt' | 'videos' | 'notifications' | 'database' | 'admin-actions' | 'messages' | 'highfive'>('users');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [hasLoadedInitially, setHasLoadedInitially] = useState(false);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
@@ -339,6 +340,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
             )}
           </button>
 
+          <button
+            className={`tab-button ${activeTab === 'highfive' ? 'active' : ''}`}
+            onClick={() => setActiveTab('highfive')}
+          >
+            ✋ {!sidebarCollapsed && 'High Five Gönder'}
+          </button>
+
           <div className="sidebar-divider"></div>
 
           <button
@@ -456,6 +464,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
             <NotificationManager />
           ) : activeTab === 'messages' ? (
             <MessagesManager />
+          ) : activeTab === 'highfive' ? (
+            <HighFiveManager users={allUsers} />
           ) : activeTab === 'admin-actions' ? (
             <>
               <div className="admin-section">
