@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { database, db, getDatabasePath } from '../firebase';
-import { ref, update, push, set, get, child } from 'firebase/database';
+import { ref, update, push, set, get } from 'firebase/database';
 import { doc, getDoc } from 'firebase/firestore';
 import './AdminPanel.css'; // Re-use admin styles
 
