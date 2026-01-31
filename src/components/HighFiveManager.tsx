@@ -10,18 +10,48 @@ interface AdminPanelUser {
     username: string;
     email?: string;
     name?: string;
+    highFives?: Record<string, any>;
+    high_fives?: Record<string, any>;
+    highFive?: Record<string, any>;
     // Add other fields if necessary
 }
 
 interface HighFiveManagerProps {
     users: AdminPanelUser[];
+    onRefresh?: () => void;
 }
 
-const HighFiveManager: React.FC<HighFiveManagerProps> = ({ users }) => {
+const HighFiveManager: React.FC<HighFiveManagerProps> = ({ users, onRefresh }) => {
     const [senderId, setSenderId] = useState<string>('');
     const [receiverId, setReceiverId] = useState<string>('');
     const [loading, setLoading] = useState(false);
     const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+    const [interactions, setInteractions] = useState<any[]>([]);
+
+    React.useEffect(() => {
+        const allInteractions: any[] = [];
+        users.forEach(user => {
+            // Check multiple possible keys
+            const hfData = user.highFives || user.high_fives || user.highFive;
+            if (hfData && typeof hfData === 'object') {
+                Object.entries(hfData).forEach(([sId, data]: [string, any]) => {
+                    const sender = users.find(u => u.key === sId);
+                    allInteractions.push({
+                        receiverId: user.key,
+                        receiverName: user.username,
+                        senderId: sId,
+                        senderName: sender?.username || data.senderName || 'Bilinmeyen',
+                        count: data.count || 1,
+                        timestamp: data.timestamp || 0,
+                        viewed: data.viewed || false
+                    });
+                });
+            }
+        });
+        // Sort by timestamp descending
+        allInteractions.sort((a, b) => b.timestamp - a.timestamp);
+        setInteractions(allInteractions);
+    }, [users]);
 
     const handleSendHighFive = async () => {
         if (!senderId || !receiverId) {
@@ -131,13 +161,47 @@ const HighFiveManager: React.FC<HighFiveManagerProps> = ({ users }) => {
 
             setStatus({ type: 'success', message: `${sender.username} adına ${receiver.username} kullanıcısına beşlik gönderildi!` });
 
-            // Reset selection optional? Maybe keep for bulk sending.
-            // setSenderId('');
-            // setReceiverId('');
+            // Trigger refresh
+            if (onRefresh) onRefresh();
 
         } catch (error: any) {
             console.error('High Five error:', error);
             setStatus({ type: 'error', message: 'Hata oluştu: ' + error.message });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDeleteInteraction = async (rId: string, sId: string, mutual: boolean = true) => {
+        if (!window.confirm('Bu beşlik kaydını silmek istediğinize emin misiniz?')) return;
+
+        setLoading(true);
+        setStatus(null);
+
+        try {
+            // 1. Delete from receiver
+            const receiverPath = getDatabasePath(rId);
+            const receiverHighFiveRef = ref(database, `${receiverPath}/highFives/${sId}`);
+            await set(receiverHighFiveRef, null);
+
+            // 2. If mutual, delete from sender too (in case they also sent back)
+            if (mutual) {
+                const senderPath = getDatabasePath(sId);
+                const senderHighFiveRef = ref(database, `${senderPath}/highFives/${rId}`);
+                await set(senderHighFiveRef, null);
+            }
+
+            setStatus({ type: 'success', message: 'Beşlik(ler) başarıyla silindi.' });
+
+            // Trigger parent refresh
+            if (onRefresh) onRefresh();
+
+            // Local update for immediate feedback
+            setInteractions(prev => prev.filter(i => !(i.receiverId === rId && i.senderId === sId) && !(mutual && i.receiverId === sId && i.senderId === rId)));
+
+        } catch (error: any) {
+            console.error('Delete High Five error:', error);
+            setStatus({ type: 'error', message: 'Silme hatası: ' + error.message });
         } finally {
             setLoading(false);
         }
@@ -210,6 +274,67 @@ const HighFiveManager: React.FC<HighFiveManagerProps> = ({ users }) => {
                 >
                     {loading ? 'Gönderiliyor...' : '✋ Beşlik Gönder'}
                 </button>
+            </div>
+
+            <div className="section-header" style={{ marginTop: '40px' }}>
+                <h2>📋 Mevcut High Fives (Beşlikler) ({interactions.length})</h2>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button className="admin-button success small" onClick={onRefresh} disabled={loading}>
+                        🔄 Listeyi Yenile
+                    </button>
+                    <p className="section-subtitle">Sistemdeki tüm beşlik etkileşimlerini görüntüle.</p>
+                </div>
+            </div>
+
+            <div className="admin-card">
+                {interactions.length === 0 ? (
+                    <p style={{ textAlign: 'center', padding: '20px' }}>Henüz hiç beşlik etkileşimi bulunmuyor.</p>
+                ) : (
+                    <div className="table-container">
+                        <table className="user-sql-table">
+                            <thead>
+                                <tr>
+                                    <th>Gönderen</th>
+                                    <th></th>
+                                    <th>Alıcı</th>
+                                    <th>Sayı</th>
+                                    <th>Tarih</th>
+                                    <th>İşlemler</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {interactions.map((interaction, index) => (
+                                    <tr key={`${interaction.senderId}-${interaction.receiverId}-${index}`}>
+                                        <td>
+                                            <div className="user-info">
+                                                <span className="username">{interaction.senderName}</span>
+                                                <span className="user-id">{interaction.senderId.substring(0, 6)}</span>
+                                            </div>
+                                        </td>
+                                        <td style={{ textAlign: 'center' }}>➡️</td>
+                                        <td>
+                                            <div className="user-info">
+                                                <span className="username">{interaction.receiverName}</span>
+                                                <span className="user-id">{interaction.receiverId.substring(0, 6)}</span>
+                                            </div>
+                                        </td>
+                                        <td>{interaction.count}</td>
+                                        <td>{interaction.timestamp ? new Date(interaction.timestamp).toLocaleString('tr-TR') : '-'}</td>
+                                        <td>
+                                            <button
+                                                className="admin-button danger small"
+                                                onClick={() => handleDeleteInteraction(interaction.receiverId, interaction.senderId)}
+                                                disabled={loading}
+                                            >
+                                                Sil
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
             </div>
         </div>
     );

@@ -9,6 +9,7 @@ import {
   adminDowngradeFromPremium,
   updateUserData,
   deleteUser,
+  createUser,
   type AdminPanelUser
 } from '../utils/adminFunctions';
 import StoryManager from './StoryManager';
@@ -18,6 +19,7 @@ import VideoManager from './VideoManager';
 import NotificationManager from './NotificationManager';
 import MessagesManager from './MessagesManager';
 import HighFiveManager from './HighFiveManager';
+import BotManager from './BotManager';
 import './AdminPanel.css';
 
 interface AdminPanelProps {
@@ -39,12 +41,21 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
   const [selectedDetailUser, setSelectedDetailUser] = useState<AdminPanelUser | null>(null);
   const [showUserEdit, setShowUserEdit] = useState(false);
   const [syncStatus, setSyncStatus] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'users' | 'stories' | 'similarity' | 'wordhunt' | 'videos' | 'notifications' | 'database' | 'admin-actions' | 'messages' | 'highfive'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'stories' | 'similarity' | 'wordhunt' | 'videos' | 'notifications' | 'database' | 'admin-actions' | 'messages' | 'highfive' | 'bots'>('users');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [hasLoadedInitially, setHasLoadedInitially] = useState(false);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const lastUnreadCount = useRef(0);
   const isFirstCheck = useRef(true);
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [newUserForm, setNewUserForm] = useState({
+    username: '',
+    email: '',
+    isSystemUser: false,
+    isPremium: false,
+    level: 1,
+    score: 0,
+  });
 
   // Browser Notification & Sound Logic
   useEffect(() => {
@@ -112,6 +123,37 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
       setHasLoadedInitially(true);
     }
   }, [hasLoadedInitially]);
+
+  const handleCreateUser = async () => {
+    if (!newUserForm.username) {
+      alert('Lütfen kullanıcı adı girin');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const result = await createUser(newUserForm);
+      if (result.success) {
+        alert('Başarılı! Kullanıcı oluşturuldu.');
+        setShowCreateUser(false);
+        setNewUserForm({
+          username: '',
+          email: '',
+          isSystemUser: false,
+          isPremium: false,
+          level: 1,
+          score: 0,
+        });
+        await handleGetAllUsers();
+      } else {
+        alert(`Hata: ${result.message}`);
+      }
+    } catch (e) {
+      alert('Hata oluştu');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleAdminAction = async (action: 'check' | 'sync' | 'cleanup') => {
     try {
@@ -347,6 +389,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
             ✋ {!sidebarCollapsed && 'High Five Gönder'}
           </button>
 
+          <button
+            className={`tab-button ${activeTab === 'bots' ? 'active' : ''}`}
+            onClick={() => setActiveTab('bots')}
+          >
+            🤖 {!sidebarCollapsed && 'Bot Yönetimi'}
+          </button>
+
           <div className="sidebar-divider"></div>
 
           <button
@@ -363,14 +412,23 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
             <div className="admin-section users-section">
               <div className="section-header">
                 <h2>👥 Kullanıcı Listesi ({allUsers.length})</h2>
-                <button
-                  className="admin-button primary"
-                  onClick={handleGetAllUsers}
-                  disabled={isLoading}
-                  style={{ padding: '8px 16px', fontSize: '14px' }}
-                >
-                  🔄 Yenile
-                </button>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    className="admin-button success"
+                    onClick={() => setShowCreateUser(true)}
+                    style={{ padding: '8px 16px', fontSize: '14px' }}
+                  >
+                    ➕ Yeni Kullanıcı
+                  </button>
+                  <button
+                    className="admin-button primary"
+                    onClick={handleGetAllUsers}
+                    disabled={isLoading}
+                    style={{ padding: '8px 16px', fontSize: '14px' }}
+                  >
+                    🔄 Yenile
+                  </button>
+                </div>
               </div>
 
               <div className="user-table-container">
@@ -394,7 +452,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                         <td className="col-index">{index + 1}</td>
                         <td className="col-username">
                           <div className="user-name-cell">
-                            <strong>{user.username}</strong>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              <strong>{user.username}</strong>
+                              {user.isSystemUser && <span className="badge system small" style={{ fontSize: '10px', padding: '2px 6px' }}>🤖 Bot</span>}
+                            </div>
                             <span className="user-key-hint">{user.key}</span>
                           </div>
                         </td>
@@ -465,7 +526,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
           ) : activeTab === 'messages' ? (
             <MessagesManager />
           ) : activeTab === 'highfive' ? (
-            <HighFiveManager users={allUsers} />
+            <HighFiveManager users={allUsers} onRefresh={handleGetAllUsers} />
+          ) : activeTab === 'bots' ? (
+            <BotManager users={allUsers} onRefresh={handleGetAllUsers} isLoading={isLoading} />
           ) : activeTab === 'admin-actions' ? (
             <>
               <div className="admin-section">
@@ -647,6 +710,80 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                     , 2)}
                 </pre>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Kullanıcı Oluşturma Modal */}
+      {showCreateUser && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '500px' }}>
+            <div className="modal-header" style={{ background: 'linear-gradient(135deg, #10b981, #059669)', color: 'white' }}>
+              <h3 style={{ color: 'white' }}>➕ Yeni Kullanıcı Oluştur</h3>
+              <button className="close-button" onClick={() => setShowCreateUser(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label>Kullanıcı Adı (Benzersiz):</label>
+                <input
+                  type="text"
+                  value={newUserForm.username}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, username: e.target.value })}
+                  placeholder="Örn: testuser123"
+                />
+              </div>
+              <div className="form-group">
+                <label>Email (Opsiyonel):</label>
+                <input
+                  type="email"
+                  value={newUserForm.email}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, email: e.target.value })}
+                  placeholder="Örn: test@example.com"
+                />
+              </div>
+              <div className="form-group">
+                <label>Seviye (Level):</label>
+                <input
+                  type="number"
+                  value={newUserForm.level}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, level: parseInt(e.target.value) })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Puan (Score):</label>
+                <input
+                  type="number"
+                  value={newUserForm.score}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, score: parseInt(e.target.value) })}
+                />
+              </div>
+              <div className="checkbox-group">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={newUserForm.isSystemUser}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, isSystemUser: e.target.checked })}
+                  />
+                  Sistem Kullanıcısı (Bot)
+                </label>
+              </div>
+              <div className="checkbox-group">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={newUserForm.isPremium}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, isPremium: e.target.checked })}
+                  />
+                  Premium Üyelik
+                </label>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="cancel-button" onClick={() => setShowCreateUser(false)}>İptal</button>
+              <button className="save-button" onClick={handleCreateUser} disabled={isLoading}>
+                {isLoading ? 'Oluşturuluyor...' : 'Oluştur'}
+              </button>
             </div>
           </div>
         </div>

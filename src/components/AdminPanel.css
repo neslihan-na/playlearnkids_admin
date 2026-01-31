@@ -618,6 +618,12 @@
   border: 1px solid #d1fae5;
 }
 
+.badge.system {
+  background-color: #e0f2fe;
+  color: #0284c7;
+  border: 1px solid #bae6fd;
+}
+
 .user-actions-cell {
   display: flex;
   gap: 6px;
@@ -1028,9 +1034,11 @@ input:checked+.slider:before {
   0% {
     box-shadow: 0 0 0 0px rgba(239, 68, 68, 0.4);
   }
+
   70% {
     box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
   }
+
   100% {
     box-shadow: 0 0 0 0px rgba(239, 68, 68, 0);
   }

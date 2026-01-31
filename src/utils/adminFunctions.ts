@@ -13,6 +13,10 @@ export interface AdminPanelUser {
   isAdmin: boolean;
   score: number;
   birthYear: number;
+  isSystemUser?: boolean;
+  highFives?: Record<string, any>;
+  high_fives?: Record<string, any>;
+  highFive?: Record<string, any>;
   [key: string]: any;
 }
 
@@ -621,6 +625,62 @@ export const updateAdminLastLogin = async (adminKey: string): Promise<{
     return {
       success: false,
       message: (error as Error).message
+    };
+  }
+};
+
+// Create new user
+export const createUser = async (userData: Partial<AdminPanelUser>): Promise<{
+  success: boolean;
+  message: string;
+  user?: AdminPanelUser;
+  error?: string;
+}> => {
+  try {
+    const { username, email, ...rest } = userData;
+    if (!username) throw new Error('Username is required');
+
+    const userKey = username.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '');
+    const userRef = ref(database, getDatabasePath(userKey));
+
+    // Check if user already exists
+    const snapshot = await get(userRef);
+    if (snapshot.exists()) {
+      return {
+        success: false,
+        message: 'Kullanıcı zaten mevcut',
+        error: 'User already exists'
+      };
+    }
+
+    const newUser: AdminPanelUser = {
+      key: userKey,
+      username: username,
+      email: email || `${userKey}@playlearnkids.com`,
+      level: 1,
+      avatar: 'Boy_1',
+      avatarKey: 'Boy_1',
+      isPremium: false,
+      isAdmin: false,
+      score: 0,
+      birthYear: new Date().getFullYear() - 5,
+      createdAt: Date.now(),
+      lastUpdated: Date.now(),
+      ...rest
+    } as AdminPanelUser;
+
+    await set(userRef, newUser);
+
+    return {
+      success: true,
+      message: `Kullanıcı '${username}' başarıyla oluşturuldu`,
+      user: newUser
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Kullanıcı oluşturulamadı: ${(error as Error).message}`,
+      error: (error as Error).message
     };
   }
 };
