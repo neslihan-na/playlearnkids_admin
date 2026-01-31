@@ -12,7 +12,7 @@ interface User {
 
 interface NotificationFormData {
     userId: string;
-    type: 'new_story' | 'achievement' | 'score_update' | 'special_event' | 'premium_feature';
+    type: 'new_story' | 'achievement' | 'score_update' | 'special_event' | 'congrats' | 'premium_feature';
     titleTr: string;
     titleEn: string;
     messageTr: string;
@@ -241,6 +241,13 @@ const NotificationManager: React.FC = () => {
             messageEn: 'There\'s a special event today!',
             data: { eventId: '', eventType: '' },
         },
+        congrats: {
+            titleTr: '✋ Çak Bir Beşlik!',
+            titleEn: '✋ High Five!',
+            messageTr: 'Harikasın! Birisi sana beşlik çaktı.',
+            messageEn: 'Awesome! Someone sent you a high five.',
+            data: { type: 'high_five', route: '/profile' },
+        },
         premium_feature: {
             titleTr: '💎 Süper Kahraman!',
             titleEn: '💎 Super Hero!',
@@ -321,6 +328,7 @@ const NotificationManager: React.FC = () => {
                         <option value="achievement">🏆 Başarı</option>
                         <option value="score_update">⭐ Skor Güncellemesi</option>
                         <option value="special_event">🎊 Özel Etkinlik</option>
+                        <option value="congrats">✋ Beşlik Çakma</option>
                         <option value="premium_feature">💎 Premium Özellik</option>
                     </select>
                     <button type="button" onClick={applyTemplate} className="template-btn">
