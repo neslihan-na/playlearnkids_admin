@@ -12,7 +12,7 @@ interface User {
 
 interface NotificationFormData {
     userId: string;
-    type: 'new_story' | 'achievement' | 'score_update' | 'special_event' | 'congrats' | 'premium_feature';
+    type: 'new_story' | 'achievement' | 'score_update' | 'special_event' | 'congrats' | 'premium_feature' | 'custom' | 'custom_redirect';
     titleTr: string;
     titleEn: string;
     messageTr: string;
@@ -255,6 +255,20 @@ const NotificationManager: React.FC = () => {
             messageEn: 'You gained access to premium features!',
             data: { feature: 'premium', route: '/stories' },
         },
+        custom: {
+            titleTr: '',
+            titleEn: '',
+            messageTr: '',
+            messageEn: '',
+            data: {},
+        },
+        custom_redirect: {
+            titleTr: '🔗 Yönlendirme',
+            titleEn: '🔗 Redirect',
+            messageTr: 'Seni özel bir sayfaya yönlendiriyoruz.',
+            messageEn: 'Redirecting you to a special page.',
+            data: { url: 'https://', route: '/home' },
+        },
     };
 
     const applyTemplate = () => {
@@ -330,6 +344,8 @@ const NotificationManager: React.FC = () => {
                         <option value="special_event">🎊 Özel Etkinlik</option>
                         <option value="congrats">✋ Beşlik Çakma</option>
                         <option value="premium_feature">💎 Premium Özellik</option>
+                        <option value="custom">💬 Özel Mesaj</option>
+                        <option value="custom_redirect">🔗 Özel Yönlendirme</option>
                     </select>
                     <button type="button" onClick={applyTemplate} className="template-btn">
                         Şablon Uygula
