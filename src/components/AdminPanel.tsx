@@ -42,7 +42,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
   const [showUserEdit, setShowUserEdit] = useState(false);
   const [syncStatus, setSyncStatus] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'users' | 'stories' | 'similarity' | 'wordhunt' | 'videos' | 'notifications' | 'database' | 'admin-actions' | 'messages' | 'highfive' | 'bots'>('users');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [hasLoadedInitially, setHasLoadedInitially] = useState(false);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const lastUnreadCount = useRef(0);
