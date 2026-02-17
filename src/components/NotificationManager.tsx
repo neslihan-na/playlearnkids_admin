@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ref, push, set, get } from 'firebase/database';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { database, db } from '../firebase';
 import './NotificationManager.css';
 
@@ -84,78 +84,80 @@ const NotificationManager: React.FC = () => {
         }
     };
 
-    const sendNotification = async (userId: string) => {
+    const sendNotification = async (userId: string, cachedToken?: string) => {
         try {
-            console.log('🔥 sendNotification başladı:', { userId, database });
+            console.log('🔥 sendNotification başladı:', { userId });
             const notificationsRef = ref(database, 'notifications');
-            console.log('🔥 notificationsRef oluşturuldu:', notificationsRef);
-
             const newNotificationRef = push(notificationsRef);
-            console.log('🔥 newNotificationRef oluşturuldu:', newNotificationRef.key);
 
             const notification = {
                 userId,
                 type: formData.type,
                 title: {
                     tr: formData.titleTr,
-                    en: formData.titleEn || formData.titleTr, // Fallback to Turkish if English is empty
+                    en: formData.titleEn || formData.titleTr,
                 },
                 message: {
                     tr: formData.messageTr,
-                    en: formData.messageEn || formData.messageTr, // Fallback to Turkish if English is empty
+                    en: formData.messageEn || formData.messageTr,
                 },
                 read: false,
                 createdAt: new Date().toISOString(),
                 data: formData.data || {},
             };
 
-            console.log('🔥 Notification objesi:', notification);
             await set(newNotificationRef, notification);
-            console.log('✅ Bildirim başarıyla kaydedildi!');
+            console.log(`✅ RTDB kaydedildi: ${userId}`);
 
-            // 📲 Push Notification Gönder (Kilit ekranı için)
+            // 📲 Push Notification Gönder
             try {
-                const tokenRef = doc(db, 'pushTokens', userId);
-                const tokenSnap = await getDoc(tokenRef);
+                let expoPushToken = cachedToken;
 
-                if (tokenSnap.exists()) {
-                    const tokenData = tokenSnap.data();
-                    const expoPushToken = tokenData.token;
+                if (!expoPushToken) {
+                    const tokenRef = doc(db, 'pushTokens', userId);
+                    const tokenSnap = await getDoc(tokenRef);
+                    if (tokenSnap.exists()) {
+                        expoPushToken = tokenSnap.data().token;
+                    }
+                }
 
-                    if (expoPushToken) {
-                        console.log(`📲 Push Token bulundu: ${expoPushToken}. Expo API çağrılıyor...`);
+                if (expoPushToken) {
+                    console.log(`📲 Push Token bulundu: ${expoPushToken}. Expo API çağrılıyor...`);
 
-                        const title = formData.titleTr; // Default to TR for push
-                        const body = formData.messageTr;
-
-                        fetch('https://exp.host/--/api/v2/push/send', {
-                            method: 'POST',
-                            headers: {
-                                'Accept': 'application/json',
-                                'Accept-encoding': 'gzip, deflate',
-                                'Content-Type': 'application/json',
+                    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'application/json',
+                            'Accept-encoding': 'gzip, deflate',
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            to: expoPushToken,
+                            sound: 'default',
+                            title: formData.titleTr,
+                            body: formData.messageTr,
+                            data: {
+                                ...formData.data,
+                                type: formData.type,
+                                title: formData.titleTr,
+                                message: formData.messageTr
                             },
-                            body: JSON.stringify({
-                                to: expoPushToken,
-                                sound: 'default',
-                                title: title,
-                                body: body,
-                                data: formData.data || {},
-                                priority: 'high',
-                                channelId: 'default',
-                                _displayInForeground: true // Expo standard for foreground display
-                            }),
-                        }).then(() => {
-                            console.log('✅ Push notification servisi başarılı.');
-                        }).catch(err => {
-                            console.warn('⚠️ Push notification servisi hatası:', err);
-                        });
+                            priority: 'high',
+                            channelId: 'default'
+                        }),
+                    });
+
+                    const result = await response.json();
+                    if (result.errors) {
+                        console.warn(`⚠️ Expo API Hatası (${userId}):`, result.errors);
+                    } else {
+                        console.log(`✅ Push gönderildi: ${userId}`);
                     }
                 } else {
-                    console.log(`ℹ️ Kullanıcı (${userId}) için Push Token bulunamadı. Sadece uygulama içi bildirimi kaydedildi.`);
+                    console.log(`ℹ️ Kullanıcı (${userId}) için Push Token bulunamadı.`);
                 }
             } catch (pushError) {
-                console.error('⚠️ Push notification gönderme hatası (Bildirim kilit ekranına düşmeyebilir):', pushError);
+                console.error('⚠️ Push notification gönderme hatası:', pushError);
             }
         } catch (error) {
             console.error('❌ sendNotification hatası:', error);
@@ -173,35 +175,45 @@ const NotificationManager: React.FC = () => {
             console.log('📤 Bildirim gönderiliyor...', { sendToAll, formData });
 
             if (sendToAll) {
-                // Tüm kullanıcılara gönder
-                console.log(`📤 ${users.length} kullanıcıya gönderiliyor...`);
-                for (const user of users) {
-                    console.log(`📤 Gönderiliyor: ${user.name} (${user.userId})`);
-                    await sendNotification(user.userId);
+                // 1. Tüm push token'ları tek seferde çek
+                console.log('🔍 Tüm push tokenları getiriliyor...');
+                const tokensSnapshot = await getDocs(collection(db, 'pushTokens'));
+                const tokenMap: Record<string, string> = {};
+                tokensSnapshot.forEach(doc => {
+                    tokenMap[doc.id] = doc.data().token;
+                });
+
+                // 2. Paralel olarak gönder (10'arlı gruplar halinde göndererek aşırı yüklenmeyi önle)
+                console.log(`📤 ${users.length} kullanıcıya paralel gönderiliyor...`);
+
+                const chunkSize = 10;
+                for (let i = 0; i < users.length; i += chunkSize) {
+                    const chunk = users.slice(i, i + chunkSize);
+                    await Promise.all(chunk.map(user => sendNotification(user.userId, tokenMap[user.userId])));
+                    console.log(`✅ Grup gönderildi: ${i + chunk.length}/${users.length}`);
                 }
+
                 setSuccessMessage(`${users.length} kullanıcıya bildirim gönderildi!`);
             } else {
-                // Seçili kullanıcıya gönder
+                // Seçili kullanıcıya gönder (Normal gönderim)
                 if (!formData.userId) {
                     setErrorMessage('Lütfen bir kullanıcı seçin');
                     setLoading(false);
                     return;
                 }
-                console.log(`📤 Tek kullanıcıya gönderiliyor: ${formData.userId}`);
                 await sendNotification(formData.userId);
                 setSuccessMessage('Bildirim başarıyla gönderildi!');
             }
 
             // Formu temizle
-            setFormData({
-                userId: '',
-                type: 'new_story',
+            setFormData(prev => ({
+                ...prev,
                 titleTr: '',
                 titleEn: '',
                 messageTr: '',
                 messageEn: '',
                 data: {},
-            });
+            }));
             setSendToAll(false);
         } catch (error) {
             console.error('❌ Bildirim gönderilirken hata:', error);
