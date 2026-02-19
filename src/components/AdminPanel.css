@@ -1110,3 +1110,80 @@ input:checked+.slider:before {
   font-weight: 600;
   color: #475569;
 }
+
+/* Metrics Grid Styling */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.metric-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: all 0.2s;
+}
+
+.metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  border-color: #3b82f6;
+}
+
+.metric-icon {
+  font-size: 24px;
+}
+
+.metric-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.metric-name {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.metric-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.metric-value small {
+  font-size: 10px;
+  color: #94a3b8;
+  font-weight: normal;
+}
+
+/* Sorting Styles */
+.sortable-header {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s;
+}
+
+.sortable-header:hover {
+  background-color: #e2e8f0 !important;
+}
+
+.sort-indicator {
+  margin-left: 5px;
+  font-size: 10px;
+  color: #3b82f6;
+}
+
+.no-data-alert {
+  background: #f1f5f9;
+  padding: 20px;
+  border-radius: 12px;
+  text-align: center;
+  color: #64748b;
+  font-style: italic;
+}

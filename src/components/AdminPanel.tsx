@@ -58,9 +58,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
   const [quickNotifyData, setQuickNotifyData] = useState({
     titleTr: '',
     messageTr: '',
-    type: 'custom'
+    titleEn: '',
+    messageEn: '',
+    type: 'custom',
+    data: {}
   });
   const [quickMsgText, setQuickMsgText] = useState('');
+
+  // Sorting state
+  const [sortConfig, setSortConfig] = useState<{ key: keyof AdminPanelUser | 'createdAt'; direction: 'asc' | 'desc' } | null>(null);
 
   // Browser Notification & Sound Logic
   useEffect(() => {
@@ -193,9 +199,28 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
       const result = await getAllUsers();
 
       if (result.success) {
-        setAllUsers(result.users || []);
+        let users = result.users || [];
 
-        setLastAction(`✅ ${result.users?.length || 0} kullanıcı getirildi`);
+        // Apply sorting if configured
+        if (sortConfig) {
+          users = [...users].sort((a, b) => {
+            let valA = (a as any)[sortConfig.key];
+            let valB = (b as any)[sortConfig.key];
+
+            if (typeof valA === 'string') valA = valA.toLowerCase();
+            if (typeof valB === 'string') valB = valB.toLowerCase();
+
+            if (valA === undefined || valA === null) return 1;
+            if (valB === undefined || valB === null) return -1;
+
+            if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+            if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+            return 0;
+          });
+        }
+
+        setAllUsers(users);
+        setLastAction(`✅ ${users.length} kullanıcı getirildi`);
       } else {
         setLastAction(`❌ Kullanıcılar getirilemedi`);
         alert('Hata! Kullanıcılar getirilemedi');
@@ -207,6 +232,35 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
       setIsLoading(false);
     }
   };
+
+  const requestSort = (key: keyof AdminPanelUser | 'createdAt') => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  // Re-sort users whenever sortConfig or allUsers changes (locally)
+  useEffect(() => {
+    if (sortConfig && allUsers.length > 0) {
+      const sortedUsers = [...allUsers].sort((a: any, b: any) => {
+        let valA = a[sortConfig.key];
+        let valB = b[sortConfig.key];
+
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+
+        if (valA === undefined || valA === null) return 1;
+        if (valB === undefined || valB === null) return -1;
+
+        if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+      setAllUsers(sortedUsers);
+    }
+  }, [sortConfig]);
 
   const handleEditUser = (user: AdminPanelUser) => {
     setSelectedUser(user);
@@ -352,50 +406,106 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
   };
 
   const handleSendQuickNotify = async () => {
-    if (!quickTargetUser || !quickNotifyData.titleTr || !quickNotifyData.messageTr) return;
+    if (!quickNotifyData.titleTr || !quickNotifyData.messageTr) return;
+
+    const targetKeys = quickTargetUser ? [quickTargetUser.key] : selectedUserKeys;
+    if (targetKeys.length === 0) return;
 
     try {
       setIsLoading(true);
-      const result = await sendNotificationDirectly(quickTargetUser.key, {
-        titleTr: quickNotifyData.titleTr,
-        messageTr: quickNotifyData.messageTr,
-        type: quickNotifyData.type,
-      });
+      let successCount = 0;
+      let failCount = 0;
 
-      if (result.success) {
-        alert('Bildirim başarıyla gönderildi');
-        setShowQuickNotify(false);
-        setQuickNotifyData({ titleTr: '', messageTr: '', type: 'custom' });
-      } else {
-        alert('Hata oluştu: ' + result.error);
+      for (const key of targetKeys) {
+        const result = await sendNotificationDirectly(key, {
+          titleTr: quickNotifyData.titleTr,
+          messageTr: quickNotifyData.messageTr,
+          titleEn: quickNotifyData.titleEn || quickNotifyData.titleTr,
+          messageEn: quickNotifyData.messageEn || quickNotifyData.messageTr,
+          type: quickNotifyData.type,
+          data: quickNotifyData.data,
+        });
+        if (result.success) successCount++;
+        else failCount++;
       }
+
+      alert(`Bildirim gönderimi tamamlandı.\nBaşarılı: ${successCount}\nHatalı: ${failCount}`);
+      setShowQuickNotify(false);
+      setQuickNotifyData({ titleTr: '', messageTr: '', titleEn: '', messageEn: '', type: 'custom', data: {} });
     } catch (error) {
-      alert('Hata!');
+      alert('Hata oluştu!');
     } finally {
       setIsLoading(false);
     }
   };
 
+  const quickNotificationTemplates: any = {
+    new_story: {
+      titleTr: '📚 Yeni Hikaye!',
+      titleEn: '📚 New Story!',
+      messageTr: 'Yeni bir hikaye eklendi. Hemen okumaya başla!',
+      messageEn: 'A new story has been added. Start reading now!',
+      data: { storyId: '', route: '/stories' },
+    },
+    achievement: {
+      titleTr: '🏆 Tebrikler!',
+      titleEn: '🏆 Congratulations!',
+      messageTr: 'Yeni bir rozet kazandın!',
+      messageEn: 'You earned a new badge!',
+      data: { achievementId: '', badgeKey: '', route: '/profile' },
+    },
+    congrats: {
+      titleTr: '✋ Çak Bir Beşlik!',
+      titleEn: '✋ High Five!',
+      messageTr: 'Harikasın! Birisi sana beşlik çaktı.',
+      messageEn: 'Awesome! Someone sent you a high five.',
+      data: { type: 'high_five', route: '/profile' },
+    },
+    custom: {
+      titleTr: '',
+      titleEn: '',
+      messageTr: '',
+      messageEn: '',
+      data: {},
+    },
+  };
+
+  const applyQuickTemplate = (type: string) => {
+    const template = quickNotificationTemplates[type] || quickNotificationTemplates.custom;
+    setQuickNotifyData({
+      ...template,
+      type
+    });
+  };
+
   const handleSendQuickMsg = async () => {
-    if (!quickTargetUser || !quickMsgText.trim()) return;
+    if (!quickMsgText.trim()) return;
+
+    const targetKeys = quickTargetUser ? [quickTargetUser.key] : selectedUserKeys;
+    if (targetKeys.length === 0) return;
 
     try {
       setIsLoading(true);
-      const messagesRef = ref(database, `user_messages/${quickTargetUser.key}`);
-      await push(messagesRef, {
-        userId: quickTargetUser.key,
-        text: quickMsgText,
-        sender: 'admin',
-        createdAt: Date.now(),
-        read: false,
-        adminId: 'admin'
-      });
+      let successCount = 0;
 
-      alert('Mesaj başarıyla gönderildi');
+      for (const key of targetKeys) {
+        const messagesRef = ref(database, `user_messages/${key}`);
+        await push(messagesRef, {
+          userId: key,
+          text: quickMsgText,
+          sender: 'admin',
+          createdAt: Date.now(),
+          read: false,
+          adminId: 'admin'
+        });
+        successCount++;
+      }
+
+      alert(`${successCount} kullanıcıya mesaj başarıyla gönderildi`);
       setShowQuickMsg(false);
       setQuickMsgText('');
     } catch (error) {
-      alert('Hata!');
+      alert('Hata oluştu!');
     } finally {
       setIsLoading(false);
     }
@@ -527,14 +637,38 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                     🔄 Yenile
                   </button>
                   {selectedUserKeys.length > 0 && (
-                    <button
-                      className="admin-button danger"
-                      onClick={handleBulkDelete}
-                      disabled={isLoading}
-                      style={{ padding: '8px 16px', fontSize: '14px' }}
-                    >
-                      🗑️ Sil ({selectedUserKeys.length})
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        className="admin-button info"
+                        onClick={() => {
+                          setQuickTargetUser(null);
+                          setShowQuickNotify(true);
+                        }}
+                        disabled={isLoading}
+                        style={{ padding: '8px 16px', fontSize: '14px' }}
+                      >
+                        🔔 Bildirim ({selectedUserKeys.length})
+                      </button>
+                      <button
+                        className="admin-button warning"
+                        onClick={() => {
+                          setQuickTargetUser(null);
+                          setShowQuickMsg(true);
+                        }}
+                        disabled={isLoading}
+                        style={{ padding: '8px 16px', fontSize: '14px' }}
+                      >
+                        💬 Mesaj ({selectedUserKeys.length})
+                      </button>
+                      <button
+                        className="admin-button danger"
+                        onClick={handleBulkDelete}
+                        disabled={isLoading}
+                        style={{ padding: '8px 16px', fontSize: '14px' }}
+                      >
+                        🗑️ Sil ({selectedUserKeys.length})
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -550,13 +684,21 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                           onChange={handleToggleSelectAll}
                         />
                       </th>
-                      <th>Kullanıcı Adı</th>
+                      <th className="sortable-header" onClick={() => requestSort('username')}>
+                        Kullanıcı Adı {sortConfig?.key === 'username' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
+                      </th>
                       <th>Email</th>
-                      <th>Level</th>
-                      <th>Puan</th>
+                      <th className="sortable-header" onClick={() => requestSort('level')}>
+                        Level {sortConfig?.key === 'level' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
+                      </th>
+                      <th className="sortable-header" onClick={() => requestSort('score')}>
+                        Puan {sortConfig?.key === 'score' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
+                      </th>
                       <th>Yetki</th>
                       <th>Üyelik</th>
-                      <th>Doğum Yılı</th>
+                      <th className="sortable-header" onClick={() => requestSort('createdAt')}>
+                        Kayıt Tarihi {sortConfig?.key === 'createdAt' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
+                      </th>
                       <th className="col-actions">İşlemler</th>
                     </tr>
                   </thead>
@@ -592,7 +734,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                             {user.isPremium ? '💎 Premium' : '✨ Normal'}
                           </span>
                         </td>
-                        <td className="text-center">{user.birthYear || '-'}</td>
+                        <td className="text-center" style={{ fontSize: '11px', color: '#64748b' }}>
+                          {user.createdAt ? new Date(user.createdAt).toLocaleDateString('tr-TR') : '-'}
+                        </td>
                         <td className="col-actions">
                           <div className="user-actions-cell">
                             <button
@@ -841,10 +985,42 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
               <button className="close-button" onClick={() => setSelectedDetailUser(null)}>✕</button>
             </div>
             <div className="modal-body">
-              {/* Game Metrics simplified view */}
+              {/* Game Metrics visual view */}
               <div className="detail-section">
-                <h4>🎮 Oyun Verileri</h4>
-                <pre style={{ background: '#f8f9fa', padding: '10px', borderRadius: '4px', fontSize: '12px' }}>
+                <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                  🎮 Oyun İstatistikleri
+                </h4>
+
+                {selectedDetailUser.gameMetrics?.gamePlayCounts ? (
+                  <div className="metrics-grid">
+                    {Object.entries(selectedDetailUser.gameMetrics.gamePlayCounts).map(([game, count]) => (
+                      <div className="metric-card" key={game}>
+                        <div className="metric-icon">
+                          {game === 'snake' ? '🐍' :
+                            game === 'chess' ? '♟️' :
+                              game === 'memory' ? '🧠' :
+                                game === 'antosyn' ? '🐜' :
+                                  game === 'comparison' ? '⚖️' :
+                                    game === 'multiply' ? '✖️' :
+                                      game === 'divide' ? '➗' :
+                                        game === 'sum' ? '➕' :
+                                          game === 'subtract' ? '➖' : '🎮'}
+                        </div>
+                        <div className="metric-info">
+                          <span className="metric-name">{game.charAt(0).toUpperCase() + game.slice(1)}</span>
+                          <span className="metric-value">{count as number} <small>Oyun</small></span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="no-data-alert">
+                    Henüz oyun verisi bulunmuyor.
+                  </div>
+                )}
+
+                <h4 style={{ marginTop: '24px', marginBottom: '16px' }}>📋 Ham Veriler (JSON)</h4>
+                <pre style={{ background: '#f8f9fa', padding: '15px', borderRadius: '12px', fontSize: '11px', border: '1px solid #e2e8f0', maxHeight: '300px', overflow: 'auto' }}>
                   {JSON.stringify(selectedDetailUser, (key, value) =>
                     ['password', 'uid'].includes(key) ? undefined : value
                     , 2)}
@@ -929,28 +1105,34 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
         </div>
       )}
       {/* Hızlı Bildirim Modal */}
-      {showQuickNotify && quickTargetUser && (
+      {showQuickNotify && (quickTargetUser || selectedUserKeys.length > 0) && (
         <div className="modal-overlay">
           <div className="modal-content" style={{ maxWidth: '500px' }}>
             <div className="modal-header" style={{ background: 'linear-gradient(135deg, #3498db, #2980b9)', color: 'white' }}>
-              <h3 style={{ color: 'white' }}>🔔 Bildirim Gönder: {quickTargetUser.username}</h3>
+              <h3 style={{ color: 'white' }}>
+                🔔 {quickTargetUser ? `Bildirim: ${quickTargetUser.username}` : `Toplu Bildirim (${selectedUserKeys.length})`}
+              </h3>
               <button className="close-button" onClick={() => setShowQuickNotify(false)}>✕</button>
             </div>
             <div className="modal-body">
               <div className="form-group">
-                <label>Bildirim Tipi:</label>
+                <label>📋 Şablon Uygula:</label>
                 <select
-                  value={quickNotifyData.type}
-                  onChange={(e) => setQuickNotifyData({ ...quickNotifyData, type: e.target.value })}
+                  onChange={(e) => applyQuickTemplate(e.target.value)}
+                  defaultValue="custom"
+                  style={{ background: '#f0f9ff', borderColor: '#bae6fd' }}
                 >
-                  <option value="custom">💬 Özel Mesaj</option>
+                  <option value="custom">✨ Özel (Temiz)</option>
                   <option value="new_story">📚 Yeni Hikaye</option>
                   <option value="congrats">✋ Beşlik Çakma</option>
                   <option value="achievement">🏆 Başarı</option>
                 </select>
               </div>
+
+              <div className="sidebar-divider"></div>
+
               <div className="form-group">
-                <label>Başlık:</label>
+                <label>🇹🇷 Başlık (TR):</label>
                 <input
                   type="text"
                   value={quickNotifyData.titleTr}
@@ -959,12 +1141,31 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                 />
               </div>
               <div className="form-group">
-                <label>Mesaj:</label>
+                <label>🇹🇷 Mesaj (TR):</label>
                 <textarea
                   value={quickNotifyData.messageTr}
                   onChange={(e) => setQuickNotifyData({ ...quickNotifyData, messageTr: e.target.value })}
                   placeholder="Bildirim içeriği..."
-                  rows={3}
+                  rows={2}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>🇺🇸 Title (EN):</label>
+                <input
+                  type="text"
+                  value={quickNotifyData.titleEn}
+                  onChange={(e) => setQuickNotifyData({ ...quickNotifyData, titleEn: e.target.value })}
+                  placeholder="Notification title..."
+                />
+              </div>
+              <div className="form-group">
+                <label>🇺🇸 Message (EN):</label>
+                <textarea
+                  value={quickNotifyData.messageEn}
+                  onChange={(e) => setQuickNotifyData({ ...quickNotifyData, messageEn: e.target.value })}
+                  placeholder="Notification message..."
+                  rows={2}
                 />
               </div>
             </div>
@@ -979,11 +1180,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
       )}
 
       {/* Hızlı Mesaj Modal */}
-      {showQuickMsg && quickTargetUser && (
+      {showQuickMsg && (quickTargetUser || selectedUserKeys.length > 0) && (
         <div className="modal-overlay">
           <div className="modal-content" style={{ maxWidth: '500px' }}>
             <div className="modal-header" style={{ background: 'linear-gradient(135deg, #9b59b6, #8e44ad)', color: 'white' }}>
-              <h3 style={{ color: 'white' }}>💬 Mesaj Gönder: {quickTargetUser.username}</h3>
+              <h3 style={{ color: 'white' }}>
+                💬 {quickTargetUser ? `Mesaj: ${quickTargetUser.username}` : `Toplu Mesaj (${selectedUserKeys.length})`}
+              </h3>
               <button className="close-button" onClick={() => setShowQuickMsg(false)}>✕</button>
             </div>
             <div className="modal-body">
@@ -992,7 +1195,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                 <textarea
                   value={quickMsgText}
                   onChange={(e) => setQuickMsgText(e.target.value)}
-                  placeholder="Kullanıcıya mesajınızı yazın..."
+                  placeholder="Kullanıcıya/Kullanıcılara mesajınızı yazın..."
                   rows={5}
                 />
               </div>
