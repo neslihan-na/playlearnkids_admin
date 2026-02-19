@@ -1043,3 +1043,54 @@ input:checked+.slider:before {
     box-shadow: 0 0 0 0px rgba(239, 68, 68, 0);
   }
 }
+
+/* Selection and Bulk Action Styles */
+.selected-row {
+  background-color: #f0f7ff !important;
+}
+
+.admin-button.danger {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+
+.action-btn.notify {
+  border-color: #bae6fd;
+  color: #0284c7;
+}
+
+.action-btn.notify:hover {
+  background-color: #f0f9ff;
+}
+
+.action-btn.message {
+  border-color: #ddd6fe;
+  color: #7c3aed;
+}
+
+.action-btn.message:hover {
+  background-color: #f5f3ff;
+}
+
+.text-center {
+  text-align: center;
+}
+
+/* Modal Enhancements */
+.modal-body select, .modal-body textarea, .modal-body input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.modal-body textarea {
+  resize: vertical;
+}
+
+.modal-body label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #475569;
+}

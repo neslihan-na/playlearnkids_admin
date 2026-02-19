@@ -1,17 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { database, getDatabasePath } from '../firebase';
-import { ref, get } from 'firebase/database';
-import {
-  getAllUsers,
-  adminUserManagement,
-  checkUserSyncStatus,
-  adminUpgradeToPremium,
-  adminDowngradeFromPremium,
-  updateUserData,
-  deleteUser,
-  createUser,
-  type AdminPanelUser
-} from '../utils/adminFunctions';
+import { getAllUsers, adminUserManagement, checkUserSyncStatus, adminUpgradeToPremium, adminDowngradeFromPremium, updateUserData, deleteUser, createUser, type AdminPanelUser } from '../utils/adminFunctions';
+import { sendNotificationDirectly } from '../utils/notificationUtils';
+import { ref, push, get } from 'firebase/database';
 import StoryManager from './StoryManager';
 import SimilarityQuestionsManager from './SimilarityQuestionsManager';
 import WordHuntQuestionsManager from './WordHuntQuestionsManager';
@@ -56,6 +47,20 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
     level: 1,
     score: 0,
   });
+
+  // Multiselect state
+  const [selectedUserKeys, setSelectedUserKeys] = useState<string[]>([]);
+
+  // Quick Notification/Message state
+  const [showQuickNotify, setShowQuickNotify] = useState(false);
+  const [showQuickMsg, setShowQuickMsg] = useState(false);
+  const [quickTargetUser, setQuickTargetUser] = useState<AdminPanelUser | null>(null);
+  const [quickNotifyData, setQuickNotifyData] = useState({
+    titleTr: '',
+    messageTr: '',
+    type: 'custom'
+  });
+  const [quickMsgText, setQuickMsgText] = useState('');
 
   // Browser Notification & Sound Logic
   useEffect(() => {
@@ -303,6 +308,99 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedUserKeys.length === 0) return;
+
+    const confirmDelete = window.confirm(`${selectedUserKeys.length} kullanıcıyı tamamen silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`);
+    if (!confirmDelete) return;
+
+    try {
+      setIsLoading(true);
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const key of selectedUserKeys) {
+        const result = await deleteUser(key);
+        if (result.success) successCount++;
+        else failCount++;
+      }
+
+      alert(`İşlem tamamlandı.\nBaşarılı: ${successCount}\nHatalı: ${failCount}`);
+      setSelectedUserKeys([]);
+      await handleGetAllUsers();
+    } catch (error) {
+      alert('Hata oluştu');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedUserKeys.length === allUsers.length) {
+      setSelectedUserKeys([]);
+    } else {
+      setSelectedUserKeys(allUsers.map(u => u.key));
+    }
+  };
+
+  const handleToggleSelectUser = (key: string) => {
+    if (selectedUserKeys.includes(key)) {
+      setSelectedUserKeys(prev => prev.filter(k => k !== key));
+    } else {
+      setSelectedUserKeys(prev => [...prev, key]);
+    }
+  };
+
+  const handleSendQuickNotify = async () => {
+    if (!quickTargetUser || !quickNotifyData.titleTr || !quickNotifyData.messageTr) return;
+
+    try {
+      setIsLoading(true);
+      const result = await sendNotificationDirectly(quickTargetUser.key, {
+        titleTr: quickNotifyData.titleTr,
+        messageTr: quickNotifyData.messageTr,
+        type: quickNotifyData.type,
+      });
+
+      if (result.success) {
+        alert('Bildirim başarıyla gönderildi');
+        setShowQuickNotify(false);
+        setQuickNotifyData({ titleTr: '', messageTr: '', type: 'custom' });
+      } else {
+        alert('Hata oluştu: ' + result.error);
+      }
+    } catch (error) {
+      alert('Hata!');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSendQuickMsg = async () => {
+    if (!quickTargetUser || !quickMsgText.trim()) return;
+
+    try {
+      setIsLoading(true);
+      const messagesRef = ref(database, `user_messages/${quickTargetUser.key}`);
+      await push(messagesRef, {
+        userId: quickTargetUser.key,
+        text: quickMsgText,
+        sender: 'admin',
+        createdAt: Date.now(),
+        read: false,
+        adminId: 'admin'
+      });
+
+      alert('Mesaj başarıyla gönderildi');
+      setShowQuickMsg(false);
+      setQuickMsgText('');
+    } catch (error) {
+      alert('Hata!');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="admin-panel">
       <div className="admin-header">
@@ -428,6 +526,16 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                   >
                     🔄 Yenile
                   </button>
+                  {selectedUserKeys.length > 0 && (
+                    <button
+                      className="admin-button danger"
+                      onClick={handleBulkDelete}
+                      disabled={isLoading}
+                      style={{ padding: '8px 16px', fontSize: '14px' }}
+                    >
+                      🗑️ Sil ({selectedUserKeys.length})
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -435,7 +543,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                 <table className="user-sql-table">
                   <thead>
                     <tr>
-                      <th className="col-index">#</th>
+                      <th className="col-index">
+                        <input
+                          type="checkbox"
+                          checked={selectedUserKeys.length === allUsers.length && allUsers.length > 0}
+                          onChange={handleToggleSelectAll}
+                        />
+                      </th>
                       <th>Kullanıcı Adı</th>
                       <th>Email</th>
                       <th>Level</th>
@@ -448,8 +562,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                   </thead>
                   <tbody>
                     {allUsers.map((user, index) => (
-                      <tr key={user.key || index}>
-                        <td className="col-index">{index + 1}</td>
+                      <tr key={user.key || index} className={selectedUserKeys.includes(user.key) ? 'selected-row' : ''}>
+                        <td className="col-index text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedUserKeys.includes(user.key)}
+                            onChange={() => handleToggleSelectUser(user.key)}
+                          />
+                        </td>
                         <td className="col-username">
                           <div className="user-name-cell">
                             <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -482,6 +602,26 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                               title={user.isPremium ? 'Normal Yap' : 'Premium Yap'}
                             >
                               {user.isPremium ? '👑' : '⭐'}
+                            </button>
+                            <button
+                              className="action-btn notify"
+                              onClick={() => {
+                                setQuickTargetUser(user);
+                                setShowQuickNotify(true);
+                              }}
+                              title="Bildirim Gönder"
+                            >
+                              🔔
+                            </button>
+                            <button
+                              className="action-btn message"
+                              onClick={() => {
+                                setQuickTargetUser(user);
+                                setShowQuickMsg(true);
+                              }}
+                              title="Mesaj Gönder"
+                            >
+                              💬
                             </button>
                             <button
                               className="action-btn edit"
@@ -783,6 +923,84 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
               <button className="cancel-button" onClick={() => setShowCreateUser(false)}>İptal</button>
               <button className="save-button" onClick={handleCreateUser} disabled={isLoading}>
                 {isLoading ? 'Oluşturuluyor...' : 'Oluştur'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Hızlı Bildirim Modal */}
+      {showQuickNotify && quickTargetUser && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '500px' }}>
+            <div className="modal-header" style={{ background: 'linear-gradient(135deg, #3498db, #2980b9)', color: 'white' }}>
+              <h3 style={{ color: 'white' }}>🔔 Bildirim Gönder: {quickTargetUser.username}</h3>
+              <button className="close-button" onClick={() => setShowQuickNotify(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label>Bildirim Tipi:</label>
+                <select
+                  value={quickNotifyData.type}
+                  onChange={(e) => setQuickNotifyData({ ...quickNotifyData, type: e.target.value })}
+                >
+                  <option value="custom">💬 Özel Mesaj</option>
+                  <option value="new_story">📚 Yeni Hikaye</option>
+                  <option value="congrats">✋ Beşlik Çakma</option>
+                  <option value="achievement">🏆 Başarı</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Başlık:</label>
+                <input
+                  type="text"
+                  value={quickNotifyData.titleTr}
+                  onChange={(e) => setQuickNotifyData({ ...quickNotifyData, titleTr: e.target.value })}
+                  placeholder="Bildirim başlığı..."
+                />
+              </div>
+              <div className="form-group">
+                <label>Mesaj:</label>
+                <textarea
+                  value={quickNotifyData.messageTr}
+                  onChange={(e) => setQuickNotifyData({ ...quickNotifyData, messageTr: e.target.value })}
+                  placeholder="Bildirim içeriği..."
+                  rows={3}
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="cancel-button" onClick={() => setShowQuickNotify(false)}>İptal</button>
+              <button className="save-button" onClick={handleSendQuickNotify} disabled={isLoading || !quickNotifyData.titleTr || !quickNotifyData.messageTr}>
+                {isLoading ? 'Gönderiliyor...' : 'Gönder'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hızlı Mesaj Modal */}
+      {showQuickMsg && quickTargetUser && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '500px' }}>
+            <div className="modal-header" style={{ background: 'linear-gradient(135deg, #9b59b6, #8e44ad)', color: 'white' }}>
+              <h3 style={{ color: 'white' }}>💬 Mesaj Gönder: {quickTargetUser.username}</h3>
+              <button className="close-button" onClick={() => setShowQuickMsg(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label>Mesajınız:</label>
+                <textarea
+                  value={quickMsgText}
+                  onChange={(e) => setQuickMsgText(e.target.value)}
+                  placeholder="Kullanıcıya mesajınızı yazın..."
+                  rows={5}
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="cancel-button" onClick={() => setShowQuickMsg(false)}>İptal</button>
+              <button className="save-button" onClick={handleSendQuickMsg} disabled={isLoading || !quickMsgText.trim()}>
+                {isLoading ? 'Gönderiliyor...' : 'Gönder'}
               </button>
             </div>
           </div>
