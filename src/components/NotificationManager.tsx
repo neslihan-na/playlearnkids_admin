@@ -3,7 +3,7 @@ import { ref, push, set, get } from 'firebase/database';
 import { database } from '../firebase';
 import './NotificationManager.css';
 
-import { sendNotificationDirectly, getFCMv1AccessToken, sendFCMv1Notification } from '../utils/notificationUtils';
+import { getFCMv1AccessToken, sendFCMv1Notification } from '../utils/notificationUtils';
 
 interface User {
     userId: string;
