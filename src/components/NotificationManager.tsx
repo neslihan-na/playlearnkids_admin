@@ -1,8 +1,94 @@
 import React, { useState, useEffect } from 'react';
 import { ref, push, set, get } from 'firebase/database';
-import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
-import { database, db } from '../firebase';
+import { database } from '../firebase';
 import './NotificationManager.css';
+
+// FCM V1 API ile bildirim gönder (Xcode build'lerinde FCM token için)
+const sendFCMv1Notification = async (
+    fcmToken: string,
+    title: string,
+    body: string,
+    data: Record<string, string> = {}
+): Promise<boolean> => {
+    try {
+        // Service account bilgilerini RTDB'den al
+        const serviceAccountRef = ref(database, 'configuration/fcmServiceAccount');
+        const snap = await get(serviceAccountRef);
+
+        if (!snap.exists()) {
+            console.warn('⚠️ FCM Service Account bulunamadı: configuration/fcmServiceAccount');
+            return false;
+        }
+
+        const serviceAccount = snap.val();
+        const projectId = serviceAccount.project_id;
+
+        // Google OAuth2 token al (JWT)
+        const now = Math.floor(Date.now() / 1000);
+        const jwtHeader = btoa(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+        const jwtPayload = btoa(JSON.stringify({
+            iss: serviceAccount.client_email,
+            scope: 'https://www.googleapis.com/auth/firebase.messaging',
+            aud: 'https://oauth2.googleapis.com/token',
+            exp: now + 3600,
+            iat: now,
+        }));
+
+        // Not: Gerçek JWT imzalama için backend gerekir
+        // Bu yaklaşım yerine RTDB'de saklanan access token kullanacağız
+        const accessTokenRef = ref(database, 'configuration/fcmAccessToken');
+        const tokenSnap = await get(accessTokenRef);
+
+        if (!tokenSnap.exists()) {
+            console.warn('⚠️ FCM Access Token bulunamadı. configuration/fcmAccessToken yoluna ekleyin.');
+            return false;
+        }
+
+        const accessToken = tokenSnap.val();
+
+        const response = await fetch(
+            `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message: {
+                        token: fcmToken,
+                        notification: { title, body },
+                        data: Object.fromEntries(
+                            Object.entries(data).map(([k, v]) => [k, String(v)])
+                        ),
+                        apns: {
+                            payload: {
+                                aps: {
+                                    alert: { title, body },
+                                    sound: 'default',
+                                    badge: 1,
+                                }
+                            }
+                        }
+                    }
+                }),
+            }
+        );
+
+        const result = await response.json();
+        if (result.name) {
+            console.log('✅ FCM V1 gönderildi:', result.name);
+            return true;
+        } else {
+            console.warn('⚠️ FCM V1 hatası:', result);
+            return false;
+        }
+    } catch (error) {
+        console.error('❌ FCM V1 hatası:', error);
+        return false;
+    }
+};
+
 
 interface User {
     userId: string;
@@ -112,50 +198,135 @@ const NotificationManager: React.FC = () => {
             // 📲 Push Notification Gönder
             try {
                 let expoPushToken = cachedToken;
+                let tokenType = 'expo'; 
 
                 if (!expoPushToken) {
-                    const tokenRef = doc(db, 'pushTokens', userId);
-                    const tokenSnap = await getDoc(tokenRef);
-                    if (tokenSnap.exists()) {
-                        expoPushToken = tokenSnap.data().token;
+                    console.log('🔍 RTDB üzerinden token aranıyor...');
+                    const tokenRef = ref(database, `pushTokens/${userId}`);
+                    
+                    try {
+                        // Timeout ekleyerek 5 saniyeden fazla beklemeyi önleyelim
+                        const timeoutPromise = new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('Firebase timeout')), 5000)
+                        );
+                        
+                        const tokenSnap: any = await Promise.race([
+                            get(tokenRef),
+                            timeoutPromise
+                        ]);
+
+                        if (tokenSnap && tokenSnap.exists()) {
+                            const tokenData = tokenSnap.val();
+                            expoPushToken = tokenData.token;
+                            tokenType = tokenData.tokenType || 'expo';
+                        }
+                    } catch (tokenReadError: any) {
+                        console.error('⚠️ Token okuma hatası veya zaman aşımı:', tokenReadError.message);
                     }
                 }
 
                 if (expoPushToken) {
-                    console.log(`📲 Push Token bulundu: ${expoPushToken}. Expo API çağrılıyor...`);
+                    console.log(`📲 Token bulundu (${tokenType}): ${expoPushToken.substring(0, 15)}...`);
 
-                    const response = await fetch('https://exp.host/--/api/v2/push/send', {
-                        method: 'POST',
-                        headers: {
-                            'Accept': 'application/json',
-                            'Accept-encoding': 'gzip, deflate',
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            to: expoPushToken,
-                            sound: 'default',
-                            title: formData.titleTr,
-                            body: formData.messageTr,
-                            data: {
+                    if (tokenType === 'fcm') {
+                        // FCM V1 API kullan (Yeni eklediğimiz fonksiyon)
+                        await sendFCMv1Notification(
+                            expoPushToken,
+                            formData.titleTr,
+                            formData.messageTr,
+                            {
                                 ...formData.data,
                                 type: formData.type,
                                 title: formData.titleTr,
                                 message: formData.messageTr
-                            },
-                            priority: 'high',
-                            channelId: 'default'
-                        }),
-                    });
+                            }
+                        );
+                        console.log(`✅ FCM V1 üzerinden gönderildi: ${userId}`);
+                    } else if (tokenType === 'apns' || (!expoPushToken.startsWith('ExponentPushToken'))) {
+                        // APNs token → Legacy FCM API kullan (Eğer açıksa)
+                        console.log('📲 Legacy FCM API ile gönderiliyor...');
 
-                    const result = await response.json();
-                    if (result.errors) {
-                        console.warn(`⚠️ Expo API Hatası (${userId}):`, result.errors);
+                        // Firebase Server Key'i al (RTDB'den veya hardcode)
+                        const configRef = ref(database, 'configuration/fcmServerKey');
+                        const configSnap = await get(configRef);
+                        const fcmServerKey = configSnap.val();
+
+                        if (!fcmServerKey) {
+                            console.warn('⚠️ FCM Server Key bulunamadı. RTDB configuration/fcmServerKey yoluna ekleyin.');
+                        } else {
+                            const fcmResponse = await fetch('https://fcm.googleapis.com/fcm/send', {
+                                method: 'POST',
+                                headers: {
+                                    'Authorization': `key=${fcmServerKey}`,
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    to: expoPushToken,
+                                    notification: {
+                                        title: formData.titleTr,
+                                        body: formData.messageTr,
+                                        sound: 'default',
+                                    },
+                                    data: {
+                                        ...formData.data,
+                                        type: formData.type,
+                                        title: formData.titleTr,
+                                        message: formData.messageTr,
+                                    },
+                                    priority: 'high',
+                                    apns: {
+                                        payload: {
+                                            aps: {
+                                                alert: {
+                                                    title: formData.titleTr,
+                                                    body: formData.messageTr,
+                                                },
+                                                sound: 'default',
+                                                badge: 1,
+                                            }
+                                        }
+                                    }
+                                }),
+                            });
+                            const fcmResult = await fcmResponse.json();
+                            console.log(`✅ FCM sonucu (${userId}):`, fcmResult);
+                        }
                     } else {
-                        console.log(`✅ Push gönderildi: ${userId}`);
+                        // Expo token → Expo Push API kullan
+                        console.log('📲 Expo API ile gönderiliyor...');
+                        const response = await fetch('https://exp.host/--/api/v2/push/send', {
+                            method: 'POST',
+                            headers: {
+                                'Accept': 'application/json',
+                                'Accept-encoding': 'gzip, deflate',
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                to: expoPushToken,
+                                sound: 'default',
+                                title: formData.titleTr,
+                                body: formData.messageTr,
+                                data: {
+                                    ...formData.data,
+                                    type: formData.type,
+                                    title: formData.titleTr,
+                                    message: formData.messageTr
+                                },
+                                priority: 'high',
+                                channelId: 'default'
+                            }),
+                        });
+                        const result = await response.json();
+                        if (result.errors) {
+                            console.warn(`⚠️ Expo API Hatası (${userId}):`, result.errors);
+                        } else {
+                            console.log(`✅ Expo Push gönderildi: ${userId}`);
+                        }
                     }
                 } else {
                     console.log(`ℹ️ Kullanıcı (${userId}) için Push Token bulunamadı.`);
                 }
+
             } catch (pushError) {
                 console.error('⚠️ Push notification gönderme hatası:', pushError);
             }
@@ -175,13 +346,20 @@ const NotificationManager: React.FC = () => {
             console.log('📤 Bildirim gönderiliyor...', { sendToAll, formData });
 
             if (sendToAll) {
-                // 1. Tüm push token'ları tek seferde çek
-                console.log('🔍 Tüm push tokenları getiriliyor...');
-                const tokensSnapshot = await getDocs(collection(db, 'pushTokens'));
+                // 1. Tüm push token'ları Realtime Database'den tek seferde çek
+                console.log('🔍 Tüm push tokenları RTDB\'den getiriliyor...');
+                const tokensRef = ref(database, 'pushTokens');
+                const tokensSnapshot = await get(tokensRef);
                 const tokenMap: Record<string, string> = {};
-                tokensSnapshot.forEach(doc => {
-                    tokenMap[doc.id] = doc.data().token;
-                });
+                if (tokensSnapshot.exists()) {
+                    const tokensData = tokensSnapshot.val();
+                    Object.keys(tokensData).forEach(uid => {
+                        if (tokensData[uid]?.token) {
+                            tokenMap[uid] = tokensData[uid].token;
+                        }
+                    });
+                }
+                console.log(`🔑 ${Object.keys(tokenMap).length} push token bulundu.`);
 
                 // 2. Paralel olarak gönder (10'arlı gruplar halinde göndererek aşırı yüklenmeyi önle)
                 console.log(`📤 ${users.length} kullanıcıya paralel gönderiliyor...`);
