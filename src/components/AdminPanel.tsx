@@ -131,6 +131,48 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
     return () => clearInterval(interval);
   }, []);
 
+  const handleGetAllUsers = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setLastAction('Tüm kullanıcılar getiriliyor...');
+
+      const result = await getAllUsers();
+
+      if (result.success) {
+        let users = result.users || [];
+
+        // Apply sorting if configured
+        if (sortConfig) {
+          users = [...users].sort((a, b) => {
+            let valA = (a as any)[sortConfig.key];
+            let valB = (b as any)[sortConfig.key];
+
+            if (typeof valA === 'string') valA = valA.toLowerCase();
+            if (typeof valB === 'string') valB = valB.toLowerCase();
+
+            if (valA === undefined || valA === null) return 1;
+            if (valB === undefined || valB === null) return -1;
+
+            if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+            if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+            return 0;
+          });
+        }
+
+        setAllUsers(users);
+        setLastAction(`✅ ${users.length} kullanıcı getirildi`);
+      } else {
+        setLastAction(`❌ Kullanıcılar getirilemedi`);
+        alert('Hata! Kullanıcılar getirilemedi');
+      }
+    } catch (error) {
+      setLastAction(`❌ Hata: ${(error as Error).message}`);
+      alert(`Hata! Kullanıcılar getirilemedi: ${(error as Error).message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [sortConfig]);
+
   // Otomatik kullanıcı listeleme
   useEffect(() => {
     if (!hasLoadedInitially) {
@@ -195,47 +237,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
     }
   };
 
-  const handleGetAllUsers = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setLastAction('Tüm kullanıcılar getiriliyor...');
-
-      const result = await getAllUsers();
-
-      if (result.success) {
-        let users = result.users || [];
-
-        // Apply sorting if configured
-        if (sortConfig) {
-          users = [...users].sort((a, b) => {
-            let valA = (a as any)[sortConfig.key];
-            let valB = (b as any)[sortConfig.key];
-
-            if (typeof valA === 'string') valA = valA.toLowerCase();
-            if (typeof valB === 'string') valB = valB.toLowerCase();
-
-            if (valA === undefined || valA === null) return 1;
-            if (valB === undefined || valB === null) return -1;
-
-            if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
-            if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
-            return 0;
-          });
-        }
-
-        setAllUsers(users);
-        setLastAction(`✅ ${users.length} kullanıcı getirildi`);
-      } else {
-        setLastAction(`❌ Kullanıcılar getirilemedi`);
-        alert('Hata! Kullanıcılar getirilemedi');
-      }
-    } catch (error) {
-      setLastAction(`❌ Hata: ${(error as Error).message}`);
-      alert(`Hata! Kullanıcılar getirilemedi: ${(error as Error).message}`);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [sortConfig]);
 
   const requestSort = (key: keyof AdminPanelUser | 'createdAt') => {
     let direction: 'asc' | 'desc' = 'asc';
