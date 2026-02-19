@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { database, getDatabasePath } from '../firebase';
 import { getAllUsers, adminUserManagement, checkUserSyncStatus, adminUpgradeToPremium, adminDowngradeFromPremium, updateUserData, deleteUser, createUser, type AdminPanelUser } from '../utils/adminFunctions';
 import { sendNotificationDirectly } from '../utils/notificationUtils';
@@ -137,7 +137,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
       handleGetAllUsers();
       setHasLoadedInitially(true);
     }
-  }, [hasLoadedInitially]);
+  }, [hasLoadedInitially, handleGetAllUsers]);
 
   const handleCreateUser = async () => {
     if (!newUserForm.username) {
@@ -195,7 +195,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
     }
   };
 
-  const handleGetAllUsers = async () => {
+  const handleGetAllUsers = useCallback(async () => {
     try {
       setIsLoading(true);
       setLastAction('Tüm kullanıcılar getiriliyor...');
@@ -235,7 +235,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [sortConfig]);
 
   const requestSort = (key: keyof AdminPanelUser | 'createdAt') => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -243,28 +243,24 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
       direction = 'desc';
     }
     setSortConfig({ key, direction });
+
+    // Perform sort immediately
+    const sortedUsers = [...allUsers].sort((a: any, b: any) => {
+      let valA = a[key];
+      let valB = b[key];
+
+      if (typeof valA === 'string') valA = valA.toLowerCase();
+      if (typeof valB === 'string') valB = valB.toLowerCase();
+
+      if (valA === undefined || valA === null) return 1;
+      if (valB === undefined || valB === null) return -1;
+
+      if (valA < valB) return direction === 'asc' ? -1 : 1;
+      if (valA > valB) return direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+    setAllUsers(sortedUsers);
   };
-
-  // Re-sort users whenever sortConfig or allUsers changes (locally)
-  useEffect(() => {
-    if (sortConfig && allUsers.length > 0) {
-      const sortedUsers = [...allUsers].sort((a: any, b: any) => {
-        let valA = a[sortConfig.key];
-        let valB = b[sortConfig.key];
-
-        if (typeof valA === 'string') valA = valA.toLowerCase();
-        if (typeof valB === 'string') valB = valB.toLowerCase();
-
-        if (valA === undefined || valA === null) return 1;
-        if (valB === undefined || valB === null) return -1;
-
-        if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
-        if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
-        return 0;
-      });
-      setAllUsers(sortedUsers);
-    }
-  }, [sortConfig]);
 
   const handleEditUser = (user: AdminPanelUser) => {
     setSelectedUser(user);
