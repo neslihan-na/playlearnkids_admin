@@ -3,88 +3,118 @@ import { ref, push, set, get } from 'firebase/database';
 import { database } from '../firebase';
 import './NotificationManager.css';
 
-// FCM V1 API ile bildirim gönder (Xcode build'lerinde FCM token için)
+import * as jose from 'jose';
+
+const getFCMv1AccessToken = async (serviceAccount: any): Promise<string | null> => {
+    try {
+        const { client_email, private_key } = serviceAccount;
+
+        if (!private_key || !client_email) {
+            console.error('❌ Service Account bilgileri eksik');
+            return null;
+        }
+
+        // 🔐 ÖNEMLİ: Anahtar temizleme ve formatlama
+        let cleanKey = private_key.replace(/["']/g, '').trim();
+
+        // Eğer anahtar içinde boşluklar varsa onları temizleyip standart PEM yapısına sok
+        if (cleanKey.includes('-----BEGIN PRIVATE KEY-----')) {
+            const header = '-----BEGIN PRIVATE KEY-----';
+            const footer = '-----END PRIVATE KEY-----';
+            // Header ve footer arasındaki base64 kısmını al, içindeki tüm boşlukları/yeni satırları temizle
+            let body = cleanKey.replace(header, '').replace(footer, '').replace(/\s+/g, '');
+            // Tekrar birleştir
+            cleanKey = `${header}\n${body}\n${footer}`;
+        }
+
+        const jwt = await new jose.SignJWT({
+            scope: 'https://www.googleapis.com/auth/firebase.messaging https://www.googleapis.com/auth/cloud-platform',
+        })
+            .setProtectedHeader({ alg: 'RS256' })
+            .setIssuedAt()
+            .setIssuer(client_email)
+            .setAudience('https://oauth2.googleapis.com/token')
+            .setExpirationTime('1h')
+            .sign(await jose.importPKCS8(cleanKey, 'RS256'));
+
+        const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                assertion: jwt,
+            }),
+        });
+
+        const tokenData = await tokenResponse.json();
+        if (!tokenData.access_token) {
+            console.error('❌ Google Token Alınamadı. Yanıt:', tokenData);
+            return null;
+        }
+
+        return tokenData.access_token;
+    } catch (error: any) {
+        console.error('❌ Access Token hatası:', error.message);
+        return null;
+    }
+};
+
 const sendFCMv1Notification = async (
     fcmToken: string,
     title: string,
     body: string,
+    projectId: string,
+    accessToken: string,
     data: Record<string, string> = {}
 ): Promise<boolean> => {
     try {
-        // Service account bilgilerini RTDB'den al
-        const serviceAccountRef = ref(database, 'configuration/fcmServiceAccount');
-        const snap = await get(serviceAccountRef);
+        // Token'ı başlık yerine URL parametresi olarak gönderiyoruz (CORS sorunlarını aşmak için)
+        const url = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
 
-        if (!snap.exists()) {
-            console.warn('⚠️ FCM Service Account bulunamadı: configuration/fcmServiceAccount');
-            return false;
-        }
-
-        const serviceAccount = snap.val();
-        const projectId = serviceAccount.project_id;
-
-        // Google OAuth2 token al (JWT)
-        const now = Math.floor(Date.now() / 1000);
-        const jwtHeader = btoa(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-        const jwtPayload = btoa(JSON.stringify({
-            iss: serviceAccount.client_email,
-            scope: 'https://www.googleapis.com/auth/firebase.messaging',
-            aud: 'https://oauth2.googleapis.com/token',
-            exp: now + 3600,
-            iat: now,
-        }));
-
-        // Not: Gerçek JWT imzalama için backend gerekir
-        // Bu yaklaşım yerine RTDB'de saklanan access token kullanacağız
-        const accessTokenRef = ref(database, 'configuration/fcmAccessToken');
-        const tokenSnap = await get(accessTokenRef);
-
-        if (!tokenSnap.exists()) {
-            console.warn('⚠️ FCM Access Token bulunamadı. configuration/fcmAccessToken yoluna ekleyin.');
-            return false;
-        }
-
-        const accessToken = tokenSnap.val();
-
-        const response = await fetch(
-            `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
-            {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    message: {
-                        token: fcmToken,
-                        notification: { title, body },
-                        data: Object.fromEntries(
-                            Object.entries(data).map(([k, v]) => [k, String(v)])
-                        ),
-                        apns: {
-                            payload: {
-                                aps: {
-                                    alert: { title, body },
-                                    sound: 'default',
-                                    badge: 1,
-                                }
-                            }
+        const messagePayload = {
+            message: {
+                token: fcmToken,
+                notification: { title, body },
+                data: Object.fromEntries(
+                    Object.entries(data).map(([k, v]) => [k, String(v)])
+                ),
+                apns: {
+                    headers: {
+                        'apns-priority': '10',
+                        'apns-topic': 'app.neo.playlearnkids',
+                    },
+                    payload: {
+                        aps: {
+                            alert: { title, body },
+                            sound: 'default',
+                            badge: 1,
+                            'mutable-content': 1,
                         }
                     }
-                }),
+                }
             }
-        );
+        };
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(messagePayload),
+        });
 
         const result = await response.json();
+
         if (result.name) {
-            console.log('✅ FCM V1 gönderildi:', result.name);
+            console.log('✅ FCM V1 Yanıtı (Başarılı):', result);
             return true;
         } else {
-            console.warn('⚠️ FCM V1 hatası:', result);
+            console.error('❌ FCM V1 Hatası:', result);
             return false;
         }
     } catch (error) {
-        console.error('❌ FCM V1 hatası:', error);
+        console.error('❌ FCM V1 Fetch Hatası:', error);
         return false;
     }
 };
@@ -198,18 +228,18 @@ const NotificationManager: React.FC = () => {
             // 📲 Push Notification Gönder
             try {
                 let expoPushToken = cachedToken;
-                let tokenType = 'expo'; 
+                let tokenType = 'expo';
 
                 if (!expoPushToken) {
                     console.log('🔍 RTDB üzerinden token aranıyor...');
                     const tokenRef = ref(database, `pushTokens/${userId}`);
-                    
+
                     try {
                         // Timeout ekleyerek 5 saniyeden fazla beklemeyi önleyelim
-                        const timeoutPromise = new Promise((_, reject) => 
+                        const timeoutPromise = new Promise((_, reject) =>
                             setTimeout(() => reject(new Error('Firebase timeout')), 5000)
                         );
-                        
+
                         const tokenSnap: any = await Promise.race([
                             get(tokenRef),
                             timeoutPromise
@@ -229,19 +259,37 @@ const NotificationManager: React.FC = () => {
                     console.log(`📲 Token bulundu (${tokenType}): ${expoPushToken.substring(0, 15)}...`);
 
                     if (tokenType === 'fcm') {
-                        // FCM V1 API kullan (Yeni eklediğimiz fonksiyon)
-                        await sendFCMv1Notification(
-                            expoPushToken,
-                            formData.titleTr,
-                            formData.messageTr,
-                            {
-                                ...formData.data,
-                                type: formData.type,
-                                title: formData.titleTr,
-                                message: formData.messageTr
+                        // Service Account'u RTDB'den al
+                        const saRef = ref(database, 'configuration/fcmServiceAccount');
+                        const saSnap = await get(saRef);
+                        if (saSnap.exists()) {
+                            const sa = saSnap.val();
+                            const accessTok = await getFCMv1AccessToken(sa);
+                            if (accessTok) {
+                                const success = await sendFCMv1Notification(
+                                    expoPushToken,
+                                    formData.titleTr,
+                                    formData.messageTr,
+                                    sa.project_id,
+                                    accessTok,
+                                    {
+                                        ...formData.data,
+                                        type: formData.type,
+                                        title: formData.titleTr,
+                                        message: formData.messageTr
+                                    }
+                                );
+                                if (success) {
+                                    console.log(`✅ FCM V1 üzerinden başarıyla gönderildi: ${userId}`);
+                                } else {
+                                    console.error(`❌ FCM V1 gönderimi başarısız oldu (Google reddetti): ${userId}`);
+                                }
+                            } else {
+                                console.error('❌ Access Token alınamadığı için bildirim gönderilemedi.');
                             }
-                        );
-                        console.log(`✅ FCM V1 üzerinden gönderildi: ${userId}`);
+                        } else {
+                            console.error('❌ Service Account bilgisi RTDB\'de bulunamadı.');
+                        }
                     } else if (tokenType === 'apns' || (!expoPushToken.startsWith('ExponentPushToken'))) {
                         // APNs token → Legacy FCM API kullan (Eğer açıksa)
                         console.log('📲 Legacy FCM API ile gönderiliyor...');
@@ -361,13 +409,41 @@ const NotificationManager: React.FC = () => {
                 }
                 console.log(`🔑 ${Object.keys(tokenMap).length} push token bulundu.`);
 
-                // 2. Paralel olarak gönder (10'arlı gruplar halinde göndererek aşırı yüklenmeyi önle)
+                // 2. FCM V1 için access token al (Eğer gerekliyse)
+                console.log('🔐 Toplu gönderim için Access Token hazırlanıyor...');
+                const saRef = ref(database, 'configuration/fcmServiceAccount');
+                const saSnap = await get(saRef);
+                const serviceAccount = saSnap.exists() ? saSnap.val() : null;
+                const commonAccessToken = serviceAccount ? await getFCMv1AccessToken(serviceAccount) : null;
+
+                // 3. Paralel olarak gönder (10'arlı gruplar halinde göndererek aşırı yüklenmeyi önle)
                 console.log(`📤 ${users.length} kullanıcıya paralel gönderiliyor...`);
 
                 const chunkSize = 10;
                 for (let i = 0; i < users.length; i += chunkSize) {
                     const chunk = users.slice(i, i + chunkSize);
-                    await Promise.all(chunk.map(user => sendNotification(user.userId, tokenMap[user.userId])));
+                    await Promise.all(chunk.map(async (user) => {
+                        const token = tokenMap[user.userId];
+                        if (token && !token.startsWith('ExponentPushToken') && serviceAccount && commonAccessToken) {
+                            // FCM V1 (Toplu gönderimde hız için optimize)
+                            return sendFCMv1Notification(
+                                token,
+                                formData.titleTr,
+                                formData.messageTr,
+                                serviceAccount.project_id,
+                                commonAccessToken,
+                                {
+                                    ...formData.data,
+                                    type: formData.type,
+                                    title: formData.titleTr,
+                                    message: formData.messageTr
+                                }
+                            );
+                        } else {
+                            // Normal sendNotification (Expo veya legacy)
+                            return sendNotification(user.userId, token);
+                        }
+                    }));
                     console.log(`✅ Grup gönderildi: ${i + chunk.length}/${users.length}`);
                 }
 
