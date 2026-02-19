@@ -68,6 +68,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
   // Sorting state
   const [sortConfig, setSortConfig] = useState<{ key: keyof AdminPanelUser | 'createdAt'; direction: 'asc' | 'desc' } | null>(null);
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [usersPerPage, setUsersPerPage] = useState(20);
+
   // Browser Notification & Sound Logic
   useEffect(() => {
     // Request notification permission
@@ -703,98 +707,163 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {allUsers.map((user, index) => (
-                      <tr key={user.key || index} className={selectedUserKeys.includes(user.key) ? 'selected-row' : ''}>
-                        <td className="col-index text-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedUserKeys.includes(user.key)}
-                            onChange={() => handleToggleSelectUser(user.key)}
-                          />
-                        </td>
-                        <td className="col-username">
-                          <div className="user-name-cell">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                              <strong>{user.username}</strong>
-                              {user.isSystemUser && <span className="badge system small" style={{ fontSize: '10px', padding: '2px 6px' }}>🤖 Bot</span>}
+                    {(() => {
+                      const indexOfLastUser = currentPage * usersPerPage;
+                      const indexOfFirstUser = indexOfLastUser - usersPerPage;
+                      const currentUsers = allUsers.slice(indexOfFirstUser, indexOfLastUser);
+
+                      return currentUsers.map((user, index) => (
+                        <tr key={user.key || index} className={selectedUserKeys.includes(user.key) ? 'selected-row' : ''}>
+                          <td className="col-index text-center">
+                            <input
+                              type="checkbox"
+                              checked={selectedUserKeys.includes(user.key)}
+                              onChange={() => handleToggleSelectUser(user.key)}
+                            />
+                          </td>
+                          <td className="col-username">
+                            <div className="user-name-cell">
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                <strong>{user.username}</strong>
+                                {user.isSystemUser && <span className="badge system small" style={{ fontSize: '10px', padding: '2px 6px' }}>🤖 Bot</span>}
+                              </div>
+                              <span className="user-key-hint">{user.key}</span>
                             </div>
-                            <span className="user-key-hint">{user.key}</span>
-                          </div>
-                        </td>
-                        <td>{user.email || <span className="no-data">Email yok</span>}</td>
-                        <td className="text-center">{user.level || 1}</td>
-                        <td className="text-center">{user.score || 0}</td>
-                        <td>
-                          <span className={`badge ${user.isAdmin ? 'admin' : 'user'}`}>
-                            {user.isAdmin ? '👑 Admin' : '👤 User'}
-                          </span>
-                        </td>
-                        <td>
-                          <span className={`badge ${user.isPremium ? 'premium' : 'normal'}`}>
-                            {user.isPremium ? '💎 Premium' : '✨ Normal'}
-                          </span>
-                        </td>
-                        <td className="text-center" style={{ fontSize: '11px', color: '#64748b' }}>
-                          {user.createdAt ? new Date(user.createdAt).toLocaleDateString('tr-TR') : '-'}
-                        </td>
-                        <td className="col-actions">
-                          <div className="user-actions-cell">
-                            <button
-                              className={`action-btn ${user.isPremium ? 'premium' : 'normal'}`}
-                              onClick={() => handleTogglePremium(user, !user.isPremium)}
-                              disabled={isLoading}
-                              title={user.isPremium ? 'Normal Yap' : 'Premium Yap'}
-                            >
-                              {user.isPremium ? '👑' : '⭐'}
-                            </button>
-                            <button
-                              className="action-btn notify"
-                              onClick={() => {
-                                setQuickTargetUser(user);
-                                setShowQuickNotify(true);
-                              }}
-                              title="Bildirim Gönder"
-                            >
-                              🔔
-                            </button>
-                            <button
-                              className="action-btn message"
-                              onClick={() => {
-                                setQuickTargetUser(user);
-                                setShowQuickMsg(true);
-                              }}
-                              title="Mesaj Gönder"
-                            >
-                              💬
-                            </button>
-                            <button
-                              className="action-btn edit"
-                              onClick={() => handleEditUser(user)}
-                              title="Düzenle"
-                            >
-                              ✏️
-                            </button>
-                            <button
-                              className="action-btn detail"
-                              onClick={() => setSelectedDetailUser(user)}
-                              title="Detaylar"
-                            >
-                              📊
-                            </button>
-                            <button
-                              className="action-btn delete"
-                              onClick={() => handleDeleteUser(user)}
-                              disabled={isLoading}
-                              title="Sil"
-                            >
-                              🗑️
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td>{user.email || <span className="no-data">Email yok</span>}</td>
+                          <td className="text-center">{user.level || 1}</td>
+                          <td className="text-center">{user.score || 0}</td>
+                          <td>
+                            <span className={`badge ${user.isAdmin ? 'admin' : 'user'}`}>
+                              {user.isAdmin ? '👑 Admin' : '👤 User'}
+                            </span>
+                          </td>
+                          <td>
+                            <span className={`badge ${user.isPremium ? 'premium' : 'normal'}`}>
+                              {user.isPremium ? '💎 Premium' : '✨ Normal'}
+                            </span>
+                          </td>
+                          <td className="text-center" style={{ fontSize: '11px', color: '#64748b' }}>
+                            {user.createdAt ? new Date(user.createdAt).toLocaleDateString('tr-TR') : '-'}
+                          </td>
+                          <td className="col-actions">
+                            <div className="user-actions-cell">
+                              <button
+                                className={`action-btn ${user.isPremium ? 'premium' : 'normal'}`}
+                                onClick={() => handleTogglePremium(user, !user.isPremium)}
+                                disabled={isLoading}
+                                title={user.isPremium ? 'Normal Yap' : 'Premium Yap'}
+                              >
+                                {user.isPremium ? '👑' : '⭐'}
+                              </button>
+                              <button
+                                className="action-btn notify"
+                                onClick={() => {
+                                  setQuickTargetUser(user);
+                                  setShowQuickNotify(true);
+                                }}
+                                title="Bildirim Gönder"
+                              >
+                                🔔
+                              </button>
+                              <button
+                                className="action-btn message"
+                                onClick={() => {
+                                  setQuickTargetUser(user);
+                                  setShowQuickMsg(true);
+                                }}
+                                title="Mesaj Gönder"
+                              >
+                                💬
+                              </button>
+                              <button
+                                className="action-btn edit"
+                                onClick={() => handleEditUser(user)}
+                                title="Düzenle"
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                className="action-btn detail"
+                                onClick={() => setSelectedDetailUser(user)}
+                                title="Detaylar"
+                              >
+                                📊
+                              </button>
+                              <button
+                                className="action-btn delete"
+                                onClick={() => handleDeleteUser(user)}
+                                disabled={isLoading}
+                                title="Sil"
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ));
+                    })()}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Pagination Controls */}
+              <div className="pagination-container">
+                <div className="pagination-info">
+                  Toplam <strong>{allUsers.length}</strong> kullanıcıdan {(currentPage - 1) * usersPerPage + 1}-{Math.min(currentPage * usersPerPage, allUsers.length)} arası gösteriliyor
+                </div>
+                <div className="pagination-actions">
+                  <div className="users-per-page">
+                    <select value={usersPerPage} onChange={(e) => {
+                      setUsersPerPage(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}>
+                      <option value={10}>10 / Sayfa</option>
+                      <option value={20}>20 / Sayfa</option>
+                      <option value={50}>50 / Sayfa</option>
+                      <option value={100}>100 / Sayfa</option>
+                    </select>
+                  </div>
+                  <div className="page-numbers">
+                    <button
+                      disabled={currentPage === 1}
+                      onClick={() => setCurrentPage(prev => prev - 1)}
+                      className="page-btn nav"
+                    >
+                      Önceki
+                    </button>
+                    {(() => {
+                      const totalPages = Math.ceil(allUsers.length / usersPerPage);
+                      const pages = [];
+                      let startPage = Math.max(1, currentPage - 2);
+                      let endPage = Math.min(totalPages, startPage + 4);
+
+                      if (endPage - startPage < 4) {
+                        startPage = Math.max(1, endPage - 4);
+                      }
+
+                      for (let i = startPage; i <= endPage; i++) {
+                        pages.push(
+                          <button
+                            key={i}
+                            onClick={() => setCurrentPage(i)}
+                            className={`page-btn ${currentPage === i ? 'active' : ''}`}
+                          >
+                            {i}
+                          </button>
+                        );
+                      }
+                      return pages;
+                    })()}
+                    <button
+                      disabled={currentPage === Math.ceil(allUsers.length / usersPerPage)}
+                      onClick={() => setCurrentPage(prev => prev + 1)}
+                      className="page-btn nav"
+                    >
+                      Sonraki
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           ) : activeTab === 'stories' ? (
