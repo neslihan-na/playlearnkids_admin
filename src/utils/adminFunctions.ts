@@ -423,7 +423,7 @@ export const adminUserManagement = async (action: 'check' | 'sync' | 'cleanup'):
 };
 
 // Admin upgrade to premium
-export const adminUpgradeToPremium = async (username: string): Promise<{
+export const adminUpgradeToPremium = async (username: string, expirationDate: number | null = null): Promise<{
   success: boolean;
   message: string;
   error?: string;
@@ -431,6 +431,7 @@ export const adminUpgradeToPremium = async (username: string): Promise<{
   try {
     const updates = {
       isPremium: true,
+      premiumExpirationDate: expirationDate,
       premiumUpgradedAt: Date.now(),
       lastUpdated: Date.now()
     };
@@ -440,7 +441,7 @@ export const adminUpgradeToPremium = async (username: string): Promise<{
     if (result.success) {
       return {
         success: true,
-        message: `User '${username}' successfully upgraded to premium! 👑`
+        message: `User '${username}' successfully upgraded to premium!`
       };
     } else {
       return {
@@ -468,6 +469,7 @@ export const adminDowngradeFromPremium = async (username: string): Promise<{
   try {
     const updates = {
       isPremium: false,
+      premiumExpirationDate: null,
       premiumDowngradedAt: Date.now(),
       lastUpdated: Date.now()
     };

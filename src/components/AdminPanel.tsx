@@ -295,11 +295,32 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
   };
 
   const handleTogglePremium = async (user: AdminPanelUser, isPremium: boolean) => {
+    let expireDate: number | null = null;
+
+    if (isPremium) {
+      const input = window.prompt("Premium süresini GÜN olarak girin (Sınırsız için boş bırakın. İptal için İptal'e tıklayın):", "30");
+      if (input === null) {
+        return; // İptal edildi
+      }
+
+      const trimmedInput = input.trim();
+      if (trimmedInput !== "") {
+        const days = Number(trimmedInput);
+        if (isNaN(days) || days <= 0) {
+          alert("Lütfen geçerli bir gün sayısı girin.");
+          return;
+        }
+        const now = new Date();
+        now.setDate(now.getDate() + days);
+        expireDate = now.getTime();
+      }
+    }
+
     setIsLoading(true);
     try {
       let result;
       if (isPremium) {
-        result = await adminUpgradeToPremium(user.key);
+        result = await adminUpgradeToPremium(user.key, expireDate);
       } else {
         result = await adminDowngradeFromPremium(user.key);
       }
@@ -1032,6 +1053,29 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                 className="btn-primary-gradient"
                 onClick={() => {
                   const { key, username, ...updates } = selectedUser;
+
+                  // Eğer isPremium true yapıldıysa, kaç gün olacağını sor
+                  if (updates.isPremium === true) {
+                    const input = window.prompt("Premium süresini GÜN olarak girin (Sınırsız için boş bırakın. İptal için İptal'e tıklayın):", "30");
+                    if (input === null) return; // İptal edildi
+
+                    const trimmedInput = input.trim();
+                    if (trimmedInput !== "") {
+                      const days = Number(trimmedInput);
+                      if (isNaN(days) || days <= 0) {
+                        alert("Lütfen geçerli bir gün sayısı girin.");
+                        return;
+                      }
+                      const expireDate = new Date();
+                      expireDate.setDate(expireDate.getDate() + days);
+                      updates.premiumExpirationDate = expireDate.getTime();
+                    } else {
+                      updates.premiumExpirationDate = null; // Sınırsız
+                    }
+                  } else {
+                    updates.premiumExpirationDate = null;
+                  }
+
                   handleUpdateUser(key, updates);
                 }}
                 disabled={isLoading}
