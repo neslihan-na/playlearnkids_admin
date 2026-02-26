@@ -548,6 +548,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
         </div>
         <p className="header-subtitle">Yönetim Paneli</p>
         <p className="current-user">Aktif Admin: {user.name}</p>
+        <div className="version-info">
+          <span className="info-label">🚀 Son Güncelleme:</span>
+          <span className="info-value">26 Şubat 2026, 23:20</span>
+        </div>
       </div>
 
       <div className="admin-main-container">
