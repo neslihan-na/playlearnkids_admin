@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { database, getDatabasePath } from '../firebase';
 import { getAllUsers, adminUserManagement, checkUserSyncStatus, adminUpgradeToPremium, adminDowngradeFromPremium, updateUserData, deleteUser, createUser, type AdminPanelUser } from '../utils/adminFunctions';
 import { sendNotificationDirectly } from '../utils/notificationUtils';
@@ -72,6 +72,44 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [usersPerPage, setUsersPerPage] = useState(20);
 
+  // Search state
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Process users list: Filter -> Sort
+  const filteredAndSortedUsers = useMemo(() => {
+    let result = [...allUsers];
+
+    // 1. Filter
+    if (searchTerm.trim() !== '') {
+      const term = searchTerm.toLowerCase();
+      result = result.filter(user =>
+        (user.username || '').toLowerCase().includes(term) ||
+        (user.email || '').toLowerCase().includes(term) ||
+        (user.key || '').toLowerCase().includes(term)
+      );
+    }
+
+    // 2. Sort
+    if (sortConfig) {
+      result.sort((a: any, b: any) => {
+        let valA = a[sortConfig.key];
+        let valB = b[sortConfig.key];
+
+        if (typeof valA === 'string') valA = valA.toLowerCase();
+        if (typeof valB === 'string') valB = valB.toLowerCase();
+
+        if (valA === undefined || valA === null) return 1;
+        if (valB === undefined || valB === null) return -1;
+
+        if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return result;
+  }, [allUsers, searchTerm, sortConfig]);
+
   // Browser Notification & Sound Logic
   useEffect(() => {
     // Request notification permission
@@ -131,6 +169,16 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
     return () => clearInterval(interval);
   }, []);
 
+  const formatDate = (timestamp: any) => {
+    if (!timestamp) return '-';
+    try {
+      const d = new Date(timestamp);
+      return d.toLocaleDateString('tr-TR');
+    } catch (e) {
+      return '-';
+    }
+  };
+
   const handleGetAllUsers = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -139,28 +187,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
       const result = await getAllUsers();
 
       if (result.success) {
-        let users = result.users || [];
-
-        // Apply sorting if configured
-        if (sortConfig) {
-          users = [...users].sort((a, b) => {
-            let valA = (a as any)[sortConfig.key];
-            let valB = (b as any)[sortConfig.key];
-
-            if (typeof valA === 'string') valA = valA.toLowerCase();
-            if (typeof valB === 'string') valB = valB.toLowerCase();
-
-            if (valA === undefined || valA === null) return 1;
-            if (valB === undefined || valB === null) return -1;
-
-            if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
-            if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
-            return 0;
-          });
-        }
-
-        setAllUsers(users);
-        setLastAction(`✅ ${users.length} kullanıcı getirildi`);
+        setAllUsers(result.users || []);
+        setLastAction(`✅ ${(result.users || []).length} kullanıcı getirildi`);
       } else {
         setLastAction(`❌ Kullanıcılar getirilemedi`);
         alert('Hata! Kullanıcılar getirilemedi');
@@ -171,7 +199,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [sortConfig]);
+  }, []);
 
   // Otomatik kullanıcı listeleme
   useEffect(() => {
@@ -244,23 +272,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
       direction = 'desc';
     }
     setSortConfig({ key, direction });
-
-    // Perform sort immediately
-    const sortedUsers = [...allUsers].sort((a: any, b: any) => {
-      let valA = a[key];
-      let valB = b[key];
-
-      if (typeof valA === 'string') valA = valA.toLowerCase();
-      if (typeof valB === 'string') valB = valB.toLowerCase();
-
-      if (valA === undefined || valA === null) return 1;
-      if (valB === undefined || valB === null) return -1;
-
-      if (valA < valB) return direction === 'asc' ? -1 : 1;
-      if (valA > valB) return direction === 'asc' ? 1 : -1;
-      return 0;
-    });
-    setAllUsers(sortedUsers);
+    // Sayfayı başa alalım ki kafa karışmasın
+    setCurrentPage(1);
   };
 
   const handleEditUser = (user: AdminPanelUser) => {
@@ -298,21 +311,32 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
     let expireDate: number | null = null;
 
     if (isPremium) {
-      const input = window.prompt("Premium süresini GÜN olarak girin (Sınırsız için boş bırakın. İptal için İptal'e tıklayın):", "30");
+      const defaultDate = new Date();
+      defaultDate.setDate(defaultDate.getDate() + 30);
+      const defaultDateStr = `${String(defaultDate.getDate()).padStart(2, '0')}.${String(defaultDate.getMonth() + 1).padStart(2, '0')}.${defaultDate.getFullYear()}`;
+
+      const input = window.prompt("Premium bitiş tarihini girin (Format: GG.AA.YYYY - Örn: 31.12.2026. Sınırsız için boş bırakın):", defaultDateStr);
       if (input === null) {
         return; // İptal edildi
       }
 
       const trimmedInput = input.trim();
       if (trimmedInput !== "") {
-        const days = Number(trimmedInput);
-        if (isNaN(days) || days <= 0) {
-          alert("Lütfen geçerli bir gün sayısı girin.");
+        const parts = trimmedInput.split('.');
+        if (parts.length !== 3) {
+          alert("Lütfen geçerli bir tarih girin (Örn: 25.04.2026)");
           return;
         }
-        const now = new Date();
-        now.setDate(now.getDate() + days);
-        expireDate = now.getTime();
+        const day = parseInt(parts[0]);
+        const month = parseInt(parts[1]) - 1;
+        const year = parseInt(parts[2]);
+        const d = new Date(year, month, day, 23, 59, 59);
+
+        if (isNaN(d.getTime())) {
+          alert("Geçersiz tarih! Lütfen GG.AA.YYYY formatında girin.");
+          return;
+        }
+        expireDate = d.getTime();
       }
     }
 
@@ -412,10 +436,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
   };
 
   const handleToggleSelectAll = () => {
-    if (selectedUserKeys.length === allUsers.length) {
+    if (selectedUserKeys.length === filteredAndSortedUsers.length) {
       setSelectedUserKeys([]);
     } else {
-      setSelectedUserKeys(allUsers.map(u => u.key));
+      setSelectedUserKeys(filteredAndSortedUsers.map(u => u.key));
     }
   };
 
@@ -550,7 +574,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
         <p className="current-user">Aktif Admin: {user.name}</p>
         <div className="version-info">
           <span className="info-label">🚀 Son Güncelleme:</span>
-          <span className="info-value">26 Şubat 2026, 23:20</span>
+          <span className="info-value">26 Şubat 2026, 23:23</span>
         </div>
       </div>
 
@@ -654,8 +678,27 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                   >
                     ➕ Yeni Kullanıcı
                   </button>
+                  <div className="search-bar">
+                    <input
+                      type="text"
+                      className="search-input"
+                      placeholder="Kullanıcı adı, email veya ID ile ara..."
+                      value={searchTerm}
+                      onChange={(e) => {
+                        setSearchTerm(e.target.value);
+                        setCurrentPage(1); // Aramada sayfayı 1 yap
+                      }}
+                      style={{
+                        padding: '10px 15px',
+                        borderRadius: '8px',
+                        border: '1px solid #e2e8f0',
+                        width: '300px',
+                        fontSize: '14px'
+                      }}
+                    />
+                  </div>
                   <button
-                    className="admin-button primary"
+                    className="admin-button secondary"
                     onClick={handleGetAllUsers}
                     disabled={isLoading}
                     style={{ padding: '8px 16px', fontSize: '14px' }}
@@ -706,7 +749,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                       <th className="col-index">
                         <input
                           type="checkbox"
-                          checked={selectedUserKeys.length === allUsers.length && allUsers.length > 0}
+                          checked={selectedUserKeys.length === filteredAndSortedUsers.length && filteredAndSortedUsers.length > 0}
                           onChange={handleToggleSelectAll}
                         />
                       </th>
@@ -732,7 +775,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                     {(() => {
                       const indexOfLastUser = currentPage * usersPerPage;
                       const indexOfFirstUser = indexOfLastUser - usersPerPage;
-                      const currentUsers = allUsers.slice(indexOfFirstUser, indexOfLastUser);
+                      const currentUsers = filteredAndSortedUsers.slice(indexOfFirstUser, indexOfLastUser);
 
                       return currentUsers.map((user, index) => (
                         <tr key={user.key || index} className={selectedUserKeys.includes(user.key) ? 'selected-row' : ''}>
@@ -761,9 +804,16 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                             </span>
                           </td>
                           <td>
-                            <span className={`badge ${user.isPremium ? 'premium' : 'normal'}`}>
-                              {user.isPremium ? '💎 Premium' : '✨ Normal'}
-                            </span>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              <span className={`badge ${user.isPremium ? 'premium' : 'normal'}`}>
+                                {user.isPremium ? '💎 Premium' : '✨ Normal'}
+                              </span>
+                              {user.isPremium && user.premiumExpirationDate && (
+                                <span style={{ fontSize: '10px', color: '#666' }}>
+                                  ⌛ {formatDate(user.premiumExpirationDate)}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="text-center" style={{ fontSize: '11px', color: '#64748b' }}>
                             {user.createdAt ? new Date(user.createdAt).toLocaleDateString('tr-TR') : '-'}
@@ -832,7 +882,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
               {/* Pagination Controls */}
               <div className="pagination-container">
                 <div className="pagination-info">
-                  Toplam <strong>{allUsers.length}</strong> kullanıcıdan {(currentPage - 1) * usersPerPage + 1}-{Math.min(currentPage * usersPerPage, allUsers.length)} arası gösteriliyor
+                  Toplam <strong>{filteredAndSortedUsers.length}</strong> kullanıcıdan {(currentPage - 1) * usersPerPage + 1}-{Math.min(currentPage * usersPerPage, filteredAndSortedUsers.length)} arası gösteriliyor
                 </div>
                 <div className="pagination-actions">
                   <div className="users-per-page">
@@ -940,397 +990,405 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
       </div>
 
       {/* Kullanıcı Düzenleme Modal - Gelişmiş Görünüm */}
-      {showUserEdit && selectedUser && (
-        <div className="modal-overlay">
-          <div className="modal-content edit-modal-premium">
-            <div className="modal-header">
-              <div className="header-title-complex">
-                <span className="edit-icon">✏️</span>
-                <div>
-                  <h3>Kullanıcıyı Düzenle</h3>
-                  <p className="subtitle">{selectedUser.username} ({selectedUser.key})</p>
+      {
+        showUserEdit && selectedUser && (
+          <div className="modal-overlay">
+            <div className="modal-content edit-modal-premium">
+              <div className="modal-header">
+                <div className="header-title-complex">
+                  <span className="edit-icon">✏️</span>
+                  <div>
+                    <h3>Kullanıcıyı Düzenle</h3>
+                    <p className="subtitle">{selectedUser.username} ({selectedUser.key})</p>
+                  </div>
+                </div>
+                <button
+                  className="close-button-circle"
+                  onClick={() => {
+                    setShowUserEdit(false);
+                    setSelectedUser(null);
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="modal-body">
+                <div className="edit-form-grid">
+                  {Object.entries(selectedUser)
+                    .filter(([key]) => !['key', 'username', 'lastUpdated', 'password', 'uid'].includes(key))
+                    .sort(([a], [b]) => {
+                      // Important fields first
+                      const priority = ['email', 'isPremium', 'isAdmin', 'level', 'score'];
+                      const aIdx = priority.indexOf(a);
+                      const bIdx = priority.indexOf(b);
+                      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+                      if (aIdx !== -1) return -1;
+                      if (bIdx !== -1) return 1;
+                      return a.localeCompare(b);
+                    })
+                    .map(([key, value]) => {
+                      const isReadOnly = ['createdAt', 'deviceName', 'userId', 'premiumUpgradedAt', 'premiumDowngradedAt', 'avatarKey', 'avatar'].includes(key);
+                      const isObject = typeof value === 'object' && value !== null;
+                      const isBoolean = typeof value === 'boolean';
+
+                      return (
+                        <div className={`form-group ${isReadOnly ? 'read-only' : ''} ${isBoolean ? 'boolean-group' : ''}`} key={key}>
+                          <div className="label-wrapper">
+                            <label>{key.charAt(0).toUpperCase() + key.slice(1)}</label>
+                            {isReadOnly && <span className="read-only-badge">Sadece Okunur</span>}
+                          </div>
+
+                          {isBoolean ? (
+                            <div className="premium-toggle-wrapper">
+                              <label className="switch">
+                                <input
+                                  type="checkbox"
+                                  checked={value}
+                                  disabled={isReadOnly}
+                                  onChange={(e) => setSelectedUser({ ...selectedUser, [key]: e.target.checked })}
+                                />
+                                <span className="slider round"></span>
+                              </label>
+                              <span className="toggle-label">{value ? 'Aktif' : 'Pasif'}</span>
+                              {key === 'isPremium' && <span className="visual-badge">👑</span>}
+                              {key === 'isAdmin' && <span className="visual-badge">🛡️</span>}
+                            </div>
+                          ) : isObject ? (
+                            <textarea
+                              value={JSON.stringify(value, null, 2)}
+                              readOnly={isReadOnly}
+                              onChange={(e) => {
+                                try {
+                                  const parsed = JSON.parse(e.target.value);
+                                  setSelectedUser({ ...selectedUser, [key]: parsed });
+                                } catch (err) { }
+                              }}
+                              className="json-textarea"
+                            />
+                          ) : key === 'premiumExpirationDate' ? (
+                            <div>
+                              <input
+                                type="date"
+                                value={value ? new Date(value).toISOString().split('T')[0] : ''}
+                                onChange={(e) => {
+                                  const newDate = e.target.value ? new Date(e.target.value + 'T23:59:59').getTime() : null;
+                                  setSelectedUser({ ...selectedUser, premiumExpirationDate: newDate });
+                                }}
+                              />
+                              {value && (
+                                <div className="field-hint">{new Date(value).toLocaleDateString('tr-TR')} - Kullanıcının premium hesabının bişacağı tarih</div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="input-with-icon">
+                              <input
+                                type={typeof value === 'number' ? 'number' : 'text'}
+                                value={(value === null || value === undefined) ? '' : (value as any)}
+                                readOnly={isReadOnly}
+                                onChange={(e) => setSelectedUser({
+                                  ...selectedUser,
+                                  [key]: typeof value === 'number' ? parseFloat(e.target.value) : e.target.value
+                                })}
+                                placeholder={`${key} girin...`}
+                              />
+                              {key === 'email' && <span className="input-icon">📧</span>}
+                              {key === 'level' && <span className="input-icon">🆙</span>}
+                              {key === 'score' && <span className="input-icon">🏆</span>}
+                              {key === 'birthYear' && <span className="input-icon">📅</span>}
+                              {key === 'avatar' && <span className="input-icon">👤</span>}
+                              {key === 'avatarKey' && <span className="input-icon">🖼️</span>}
+                            </div>
+                          )}
+
+                          {key === 'createdAt' && typeof value === 'number' && (
+                            <div className="field-hint">Tarih: {new Date(value).toLocaleString()}</div>
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
               </div>
-              <button
-                className="close-button-circle"
-                onClick={() => {
-                  setShowUserEdit(false);
-                  setSelectedUser(null);
-                }}
-              >
-                ✕
-              </button>
-            </div>
-            <div className="modal-body">
-              <div className="edit-form-grid">
-                {Object.entries(selectedUser)
-                  .filter(([key]) => !['key', 'username', 'lastUpdated', 'password', 'uid'].includes(key))
-                  .sort(([a], [b]) => {
-                    // Important fields first
-                    const priority = ['email', 'isPremium', 'isAdmin', 'level', 'score'];
-                    const aIdx = priority.indexOf(a);
-                    const bIdx = priority.indexOf(b);
-                    if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
-                    if (aIdx !== -1) return -1;
-                    if (bIdx !== -1) return 1;
-                    return a.localeCompare(b);
-                  })
-                  .map(([key, value]) => {
-                    const isReadOnly = ['createdAt', 'deviceName', 'userId', 'premiumUpgradedAt', 'premiumDowngradedAt', 'avatarKey', 'avatar'].includes(key);
-                    const isObject = typeof value === 'object' && value !== null;
-                    const isBoolean = typeof value === 'boolean';
-
-                    return (
-                      <div className={`form-group ${isReadOnly ? 'read-only' : ''} ${isBoolean ? 'boolean-group' : ''}`} key={key}>
-                        <div className="label-wrapper">
-                          <label>{key.charAt(0).toUpperCase() + key.slice(1)}</label>
-                          {isReadOnly && <span className="read-only-badge">Sadece Okunur</span>}
-                        </div>
-
-                        {isBoolean ? (
-                          <div className="premium-toggle-wrapper">
-                            <label className="switch">
-                              <input
-                                type="checkbox"
-                                checked={value}
-                                disabled={isReadOnly}
-                                onChange={(e) => setSelectedUser({ ...selectedUser, [key]: e.target.checked })}
-                              />
-                              <span className="slider round"></span>
-                            </label>
-                            <span className="toggle-label">{value ? 'Aktif' : 'Pasif'}</span>
-                            {key === 'isPremium' && <span className="visual-badge">👑</span>}
-                            {key === 'isAdmin' && <span className="visual-badge">🛡️</span>}
-                          </div>
-                        ) : isObject ? (
-                          <textarea
-                            value={JSON.stringify(value, null, 2)}
-                            readOnly={isReadOnly}
-                            onChange={(e) => {
-                              try {
-                                const parsed = JSON.parse(e.target.value);
-                                setSelectedUser({ ...selectedUser, [key]: parsed });
-                              } catch (err) { }
-                            }}
-                            className="json-textarea"
-                          />
-                        ) : (
-                          <div className="input-with-icon">
-                            <input
-                              type={typeof value === 'number' ? 'number' : 'text'}
-                              value={(value === null || value === undefined) ? '' : (value as any)}
-                              readOnly={isReadOnly}
-                              onChange={(e) => setSelectedUser({
-                                ...selectedUser,
-                                [key]: typeof value === 'number' ? parseFloat(e.target.value) : e.target.value
-                              })}
-                              placeholder={`${key} girin...`}
-                            />
-                            {key === 'email' && <span className="input-icon">📧</span>}
-                            {key === 'level' && <span className="input-icon">🆙</span>}
-                            {key === 'score' && <span className="input-icon">🏆</span>}
-                            {key === 'birthYear' && <span className="input-icon">📅</span>}
-                            {key === 'avatar' && <span className="input-icon">👤</span>}
-                            {key === 'avatarKey' && <span className="input-icon">🖼️</span>}
-                          </div>
-                        )}
-
-                        {key === 'createdAt' && typeof value === 'number' && (
-                          <div className="field-hint">Tarih: {new Date(value).toLocaleString()}</div>
-                        )}
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-            <div className="modal-footer premium-footer">
-              <button
-                className="btn-secondary"
-                onClick={() => {
-                  setShowUserEdit(false);
-                  setSelectedUser(null);
-                }}
-              >
-                İptal
-              </button>
-              <button
-                className="btn-primary-gradient"
-                onClick={() => {
-                  const { key, username, ...updates } = selectedUser;
-
-                  // Eğer isPremium true yapıldıysa, kaç gün olacağını sor
-                  if (updates.isPremium === true) {
-                    const input = window.prompt("Premium süresini GÜN olarak girin (Sınırsız için boş bırakın. İptal için İptal'e tıklayın):", "30");
-                    if (input === null) return; // İptal edildi
-
-                    const trimmedInput = input.trim();
-                    if (trimmedInput !== "") {
-                      const days = Number(trimmedInput);
-                      if (isNaN(days) || days <= 0) {
-                        alert("Lütfen geçerli bir gün sayısı girin.");
-                        return;
-                      }
-                      const expireDate = new Date();
-                      expireDate.setDate(expireDate.getDate() + days);
-                      updates.premiumExpirationDate = expireDate.getTime();
-                    } else {
-                      updates.premiumExpirationDate = null; // Sınırsız
+              <div className="modal-footer premium-footer">
+                <button
+                  className="btn-secondary"
+                  onClick={() => {
+                    setShowUserEdit(false);
+                    setSelectedUser(null);
+                  }}
+                >
+                  İptal
+                </button>
+                <button
+                  className="btn-primary-gradient"
+                  onClick={() => {
+                    const { key, username, ...updates } = selectedUser;
+                    // premiumExpirationDate artık doğrudan modal içindeki date picker'dan geliyor.
+                    // isPremium false ise expiration'u temizle
+                    if (!updates.isPremium) {
+                      updates.premiumExpirationDate = null;
                     }
-                  } else {
-                    updates.premiumExpirationDate = null;
-                  }
-
-                  handleUpdateUser(key, updates);
-                }}
-                disabled={isLoading}
-              >
-                {isLoading ? 'Güncelleniyor...' : 'Değişiklikleri Kaydet'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {selectedDetailUser && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '800px' }}>
-            <div className="modal-header" style={{ background: 'linear-gradient(135deg, #6c5ce7, #a29bfe)', color: 'white' }}>
-              <h3 style={{ color: 'white' }}>📊 Detaylar: {selectedDetailUser.username}</h3>
-              <button className="close-button" onClick={() => setSelectedDetailUser(null)}>✕</button>
-            </div>
-            <div className="modal-body">
-              {/* Game Metrics visual view */}
-              <div className="detail-section">
-                <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                  🎮 Oyun İstatistikleri
-                </h4>
-
-                {selectedDetailUser.gameMetrics?.gamePlayCounts ? (
-                  <div className="metrics-grid">
-                    {Object.entries(selectedDetailUser.gameMetrics.gamePlayCounts).map(([game, count]) => (
-                      <div className="metric-card" key={game}>
-                        <div className="metric-icon">
-                          {game === 'snake' ? '🐍' :
-                            game === 'chess' ? '♟️' :
-                              game === 'memory' ? '🧠' :
-                                game === 'antosyn' ? '🐜' :
-                                  game === 'comparison' ? '⚖️' :
-                                    game === 'multiply' ? '✖️' :
-                                      game === 'divide' ? '➗' :
-                                        game === 'sum' ? '➕' :
-                                          game === 'subtract' ? '➖' : '🎮'}
-                        </div>
-                        <div className="metric-info">
-                          <span className="metric-name">{game.charAt(0).toUpperCase() + game.slice(1)}</span>
-                          <span className="metric-value">{count as number} <small>Oyun</small></span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="no-data-alert">
-                    Henüz oyun verisi bulunmuyor.
-                  </div>
-                )}
-
-                <h4 style={{ marginTop: '24px', marginBottom: '16px' }}>📋 Ham Veriler (JSON)</h4>
-                <pre style={{ background: '#f8f9fa', padding: '15px', borderRadius: '12px', fontSize: '11px', border: '1px solid #e2e8f0', maxHeight: '300px', overflow: 'auto' }}>
-                  {JSON.stringify(selectedDetailUser, (key, value) =>
-                    ['password', 'uid'].includes(key) ? undefined : value
-                    , 2)}
-                </pre>
+                    handleUpdateUser(key, updates);
+                  }}
+                  disabled={isLoading}
+                >
+                  {isLoading ? 'Güncelleniyor...' : 'Değişiklikleri Kaydet'}
+                </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
+
+      {
+        selectedDetailUser && (
+          <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: '800px' }}>
+              <div className="modal-header" style={{ background: 'linear-gradient(135deg, #6c5ce7, #a29bfe)', color: 'white' }}>
+                <h3 style={{ color: 'white' }}>📊 Detaylar: {selectedDetailUser.username}</h3>
+                <button className="close-button" onClick={() => setSelectedDetailUser(null)}>✕</button>
+              </div>
+              <div className="modal-body">
+                {/* Game Metrics visual view */}
+                <div className="detail-section">
+                  <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                    🎮 Oyun İstatistikleri
+                  </h4>
+
+                  {selectedDetailUser.gameMetrics?.gamePlayCounts ? (
+                    <div className="metrics-grid">
+                      {Object.entries(selectedDetailUser.gameMetrics.gamePlayCounts).map(([game, count]) => (
+                        <div className="metric-card" key={game}>
+                          <div className="metric-icon">
+                            {game === 'snake' ? '🐍' :
+                              game === 'chess' ? '♟️' :
+                                game === 'memory' ? '🧠' :
+                                  game === 'antosyn' ? '🐜' :
+                                    game === 'comparison' ? '⚖️' :
+                                      game === 'multiply' ? '✖️' :
+                                        game === 'divide' ? '➗' :
+                                          game === 'sum' ? '➕' :
+                                            game === 'subtract' ? '➖' : '🎮'}
+                          </div>
+                          <div className="metric-info">
+                            <span className="metric-name">{game.charAt(0).toUpperCase() + game.slice(1)}</span>
+                            <span className="metric-value">{count as number} <small>Oyun</small></span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="no-data-alert">
+                      Henüz oyun verisi bulunmuyor.
+                    </div>
+                  )}
+
+                  <h4 style={{ marginTop: '24px', marginBottom: '16px' }}>📋 Ham Veriler (JSON)</h4>
+                  <pre style={{ background: '#f8f9fa', padding: '15px', borderRadius: '12px', fontSize: '11px', border: '1px solid #e2e8f0', maxHeight: '300px', overflow: 'auto' }}>
+                    {JSON.stringify(selectedDetailUser, (key, value) =>
+                      ['password', 'uid'].includes(key) ? undefined : value
+                      , 2)}
+                  </pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      }
 
       {/* Kullanıcı Oluşturma Modal */}
-      {showCreateUser && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '500px' }}>
-            <div className="modal-header" style={{ background: 'linear-gradient(135deg, #10b981, #059669)', color: 'white' }}>
-              <h3 style={{ color: 'white' }}>➕ Yeni Kullanıcı Oluştur</h3>
-              <button className="close-button" onClick={() => setShowCreateUser(false)}>✕</button>
-            </div>
-            <div className="modal-body">
-              <div className="form-group">
-                <label>Kullanıcı Adı (Benzersiz):</label>
-                <input
-                  type="text"
-                  value={newUserForm.username}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, username: e.target.value })}
-                  placeholder="Örn: testuser123"
-                />
+      {
+        showCreateUser && (
+          <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: '500px' }}>
+              <div className="modal-header" style={{ background: 'linear-gradient(135deg, #10b981, #059669)', color: 'white' }}>
+                <h3 style={{ color: 'white' }}>➕ Yeni Kullanıcı Oluştur</h3>
+                <button className="close-button" onClick={() => setShowCreateUser(false)}>✕</button>
               </div>
-              <div className="form-group">
-                <label>Email (Opsiyonel):</label>
-                <input
-                  type="email"
-                  value={newUserForm.email}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, email: e.target.value })}
-                  placeholder="Örn: test@example.com"
-                />
-              </div>
-              <div className="form-group">
-                <label>Seviye (Level):</label>
-                <input
-                  type="number"
-                  value={newUserForm.level}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, level: parseInt(e.target.value) })}
-                />
-              </div>
-              <div className="form-group">
-                <label>Puan (Score):</label>
-                <input
-                  type="number"
-                  value={newUserForm.score}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, score: parseInt(e.target.value) })}
-                />
-              </div>
-              <div className="checkbox-group">
-                <label>
+              <div className="modal-body">
+                <div className="form-group">
+                  <label>Kullanıcı Adı (Benzersiz):</label>
                   <input
-                    type="checkbox"
-                    checked={newUserForm.isSystemUser}
-                    onChange={(e) => setNewUserForm({ ...newUserForm, isSystemUser: e.target.checked })}
+                    type="text"
+                    value={newUserForm.username}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, username: e.target.value })}
+                    placeholder="Örn: testuser123"
                   />
-                  Sistem Kullanıcısı (Bot)
-                </label>
-              </div>
-              <div className="checkbox-group">
-                <label>
+                </div>
+                <div className="form-group">
+                  <label>Email (Opsiyonel):</label>
                   <input
-                    type="checkbox"
-                    checked={newUserForm.isPremium}
-                    onChange={(e) => setNewUserForm({ ...newUserForm, isPremium: e.target.checked })}
+                    type="email"
+                    value={newUserForm.email}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, email: e.target.value })}
+                    placeholder="Örn: test@example.com"
                   />
-                  Premium Üyelik
-                </label>
+                </div>
+                <div className="form-group">
+                  <label>Seviye (Level):</label>
+                  <input
+                    type="number"
+                    value={newUserForm.level}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, level: parseInt(e.target.value) })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Puan (Score):</label>
+                  <input
+                    type="number"
+                    value={newUserForm.score}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, score: parseInt(e.target.value) })}
+                  />
+                </div>
+                <div className="checkbox-group">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={newUserForm.isSystemUser}
+                      onChange={(e) => setNewUserForm({ ...newUserForm, isSystemUser: e.target.checked })}
+                    />
+                    Sistem Kullanıcısı (Bot)
+                  </label>
+                </div>
+                <div className="checkbox-group">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={newUserForm.isPremium}
+                      onChange={(e) => setNewUserForm({ ...newUserForm, isPremium: e.target.checked })}
+                    />
+                    Premium Üyelik
+                  </label>
+                </div>
               </div>
-            </div>
-            <div className="modal-footer">
-              <button className="cancel-button" onClick={() => setShowCreateUser(false)}>İptal</button>
-              <button className="save-button" onClick={handleCreateUser} disabled={isLoading}>
-                {isLoading ? 'Oluşturuluyor...' : 'Oluştur'}
-              </button>
+              <div className="modal-footer">
+                <button className="cancel-button" onClick={() => setShowCreateUser(false)}>İptal</button>
+                <button className="save-button" onClick={handleCreateUser} disabled={isLoading}>
+                  {isLoading ? 'Oluşturuluyor...' : 'Oluştur'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
       {/* Hızlı Bildirim Modal */}
-      {showQuickNotify && (quickTargetUser || selectedUserKeys.length > 0) && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '500px' }}>
-            <div className="modal-header" style={{ background: 'linear-gradient(135deg, #3498db, #2980b9)', color: 'white' }}>
-              <h3 style={{ color: 'white' }}>
-                🔔 {quickTargetUser ? `Bildirim: ${quickTargetUser.username}` : `Toplu Bildirim (${selectedUserKeys.length})`}
-              </h3>
-              <button className="close-button" onClick={() => setShowQuickNotify(false)}>✕</button>
-            </div>
-            <div className="modal-body">
-              <div className="form-group">
-                <label>📋 Şablon Uygula:</label>
-                <select
-                  onChange={(e) => applyQuickTemplate(e.target.value)}
-                  defaultValue="custom"
-                  style={{ background: '#f0f9ff', borderColor: '#bae6fd' }}
-                >
-                  <option value="custom">✨ Özel (Temiz)</option>
-                  <option value="new_story">📚 Yeni Hikaye</option>
-                  <option value="congrats">✋ Beşlik Çakma</option>
-                  <option value="achievement">🏆 Başarı</option>
-                </select>
+      {
+        showQuickNotify && (quickTargetUser || selectedUserKeys.length > 0) && (
+          <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: '500px' }}>
+              <div className="modal-header" style={{ background: 'linear-gradient(135deg, #3498db, #2980b9)', color: 'white' }}>
+                <h3 style={{ color: 'white' }}>
+                  🔔 {quickTargetUser ? `Bildirim: ${quickTargetUser.username}` : `Toplu Bildirim (${selectedUserKeys.length})`}
+                </h3>
+                <button className="close-button" onClick={() => setShowQuickNotify(false)}>✕</button>
               </div>
+              <div className="modal-body">
+                <div className="form-group">
+                  <label>📋 Şablon Uygula:</label>
+                  <select
+                    onChange={(e) => applyQuickTemplate(e.target.value)}
+                    defaultValue="custom"
+                    style={{ background: '#f0f9ff', borderColor: '#bae6fd' }}
+                  >
+                    <option value="custom">✨ Özel (Temiz)</option>
+                    <option value="new_story">📚 Yeni Hikaye</option>
+                    <option value="congrats">✋ Beşlik Çakma</option>
+                    <option value="achievement">🏆 Başarı</option>
+                  </select>
+                </div>
 
-              <div className="sidebar-divider"></div>
+                <div className="sidebar-divider"></div>
 
-              <div className="form-group">
-                <label>🇹🇷 Başlık (TR):</label>
-                <input
-                  type="text"
-                  value={quickNotifyData.titleTr}
-                  onChange={(e) => setQuickNotifyData({ ...quickNotifyData, titleTr: e.target.value })}
-                  placeholder="Bildirim başlığı..."
-                />
-              </div>
-              <div className="form-group">
-                <label>🇹🇷 Mesaj (TR):</label>
-                <textarea
-                  value={quickNotifyData.messageTr}
-                  onChange={(e) => setQuickNotifyData({ ...quickNotifyData, messageTr: e.target.value })}
-                  placeholder="Bildirim içeriği..."
-                  rows={2}
-                />
-              </div>
+                <div className="form-group">
+                  <label>🇹🇷 Başlık (TR):</label>
+                  <input
+                    type="text"
+                    value={quickNotifyData.titleTr}
+                    onChange={(e) => setQuickNotifyData({ ...quickNotifyData, titleTr: e.target.value })}
+                    placeholder="Bildirim başlığı..."
+                  />
+                </div>
+                <div className="form-group">
+                  <label>🇹🇷 Mesaj (TR):</label>
+                  <textarea
+                    value={quickNotifyData.messageTr}
+                    onChange={(e) => setQuickNotifyData({ ...quickNotifyData, messageTr: e.target.value })}
+                    placeholder="Bildirim içeriği..."
+                    rows={2}
+                  />
+                </div>
 
-              <div className="form-group">
-                <label>🇺🇸 Title (EN):</label>
-                <input
-                  type="text"
-                  value={quickNotifyData.titleEn}
-                  onChange={(e) => setQuickNotifyData({ ...quickNotifyData, titleEn: e.target.value })}
-                  placeholder="Notification title..."
-                />
+                <div className="form-group">
+                  <label>🇺🇸 Title (EN):</label>
+                  <input
+                    type="text"
+                    value={quickNotifyData.titleEn}
+                    onChange={(e) => setQuickNotifyData({ ...quickNotifyData, titleEn: e.target.value })}
+                    placeholder="Notification title..."
+                  />
+                </div>
+                <div className="form-group">
+                  <label>🇺🇸 Message (EN):</label>
+                  <textarea
+                    value={quickNotifyData.messageEn}
+                    onChange={(e) => setQuickNotifyData({ ...quickNotifyData, messageEn: e.target.value })}
+                    placeholder="Notification message..."
+                    rows={2}
+                  />
+                </div>
               </div>
-              <div className="form-group">
-                <label>🇺🇸 Message (EN):</label>
-                <textarea
-                  value={quickNotifyData.messageEn}
-                  onChange={(e) => setQuickNotifyData({ ...quickNotifyData, messageEn: e.target.value })}
-                  placeholder="Notification message..."
-                  rows={2}
-                />
+              <div className="modal-footer">
+                <button className="cancel-button" onClick={() => setShowQuickNotify(false)}>İptal</button>
+                <button className="save-button" onClick={handleSendQuickNotify} disabled={isLoading || !quickNotifyData.titleTr || !quickNotifyData.messageTr}>
+                  {isLoading ? 'Gönderiliyor...' : 'Gönder'}
+                </button>
               </div>
-            </div>
-            <div className="modal-footer">
-              <button className="cancel-button" onClick={() => setShowQuickNotify(false)}>İptal</button>
-              <button className="save-button" onClick={handleSendQuickNotify} disabled={isLoading || !quickNotifyData.titleTr || !quickNotifyData.messageTr}>
-                {isLoading ? 'Gönderiliyor...' : 'Gönder'}
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Hızlı Mesaj Modal */}
-      {showQuickMsg && (quickTargetUser || selectedUserKeys.length > 0) && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '500px' }}>
-            <div className="modal-header" style={{ background: 'linear-gradient(135deg, #9b59b6, #8e44ad)', color: 'white' }}>
-              <h3 style={{ color: 'white' }}>
-                💬 {quickTargetUser ? `Mesaj: ${quickTargetUser.username}` : `Toplu Mesaj (${selectedUserKeys.length})`}
-              </h3>
-              <button className="close-button" onClick={() => setShowQuickMsg(false)}>✕</button>
-            </div>
-            <div className="modal-body">
-              <div className="form-group">
-                <label>Mesajınız:</label>
-                <textarea
-                  value={quickMsgText}
-                  onChange={(e) => setQuickMsgText(e.target.value)}
-                  placeholder="Kullanıcıya/Kullanıcılara mesajınızı yazın..."
-                  rows={5}
-                />
+      {
+        showQuickMsg && (quickTargetUser || selectedUserKeys.length > 0) && (
+          <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: '500px' }}>
+              <div className="modal-header" style={{ background: 'linear-gradient(135deg, #9b59b6, #8e44ad)', color: 'white' }}>
+                <h3 style={{ color: 'white' }}>
+                  💬 {quickTargetUser ? `Mesaj: ${quickTargetUser.username}` : `Toplu Mesaj (${selectedUserKeys.length})`}
+                </h3>
+                <button className="close-button" onClick={() => setShowQuickMsg(false)}>✕</button>
+              </div>
+              <div className="modal-body">
+                <div className="form-group">
+                  <label>Mesajınız:</label>
+                  <textarea
+                    value={quickMsgText}
+                    onChange={(e) => setQuickMsgText(e.target.value)}
+                    placeholder="Kullanıcıya/Kullanıcılara mesajınızı yazın..."
+                    rows={5}
+                  />
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button className="cancel-button" onClick={() => setShowQuickMsg(false)}>İptal</button>
+                <button className="save-button" onClick={handleSendQuickMsg} disabled={isLoading || !quickMsgText.trim()}>
+                  {isLoading ? 'Gönderiliyor...' : 'Gönder'}
+                </button>
               </div>
             </div>
-            <div className="modal-footer">
-              <button className="cancel-button" onClick={() => setShowQuickMsg(false)}>İptal</button>
-              <button className="save-button" onClick={handleSendQuickMsg} disabled={isLoading || !quickMsgText.trim()}>
-                {isLoading ? 'Gönderiliyor...' : 'Gönder'}
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
-      {isLoading && (
-        <div className="loading-overlay">
-          <div className="loading-spinner"></div>
-          <p>İşlem yapılıyor...</p>
-        </div>
-      )}
-    </div>
+      {
+        isLoading && (
+          <div className="loading-overlay">
+            <div className="loading-spinner"></div>
+            <p>İşlem yapılıyor...</p>
+          </div>
+        )
+      }
+    </div >
   );
 };
 
