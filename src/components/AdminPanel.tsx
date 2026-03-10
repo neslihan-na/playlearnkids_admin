@@ -11,6 +11,7 @@ import NotificationManager from './NotificationManager';
 import MessagesManager from './MessagesManager';
 import HighFiveManager from './HighFiveManager';
 import BotManager from './BotManager';
+import { LAST_UPDATE } from '../utils/version';
 import './AdminPanel.css';
 
 interface AdminPanelProps {
@@ -575,7 +576,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
         <p className="current-user">Aktif Admin: {user.name}</p>
         <div className="version-info">
           <span className="info-label">🚀 Son Güncelleme:</span>
-          <span className="info-value">26 Şubat 2026, 23:23</span>
+          <span className="info-value">{LAST_UPDATE}</span>
         </div>
       </div>
 
