@@ -17,6 +17,7 @@ export interface AdminPanelUser {
   highFives?: Record<string, any>;
   high_fives?: Record<string, any>;
   highFive?: Record<string, any>;
+  deviceId?: string;
   [key: string]: any;
 }
 

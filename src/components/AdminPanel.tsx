@@ -85,6 +85,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
       result = result.filter(user =>
         (user.username || '').toLowerCase().includes(term) ||
         (user.email || '').toLowerCase().includes(term) ||
+        (user.deviceId || '').toLowerCase().includes(term) ||
         (user.key || '').toLowerCase().includes(term)
       );
     }
@@ -757,6 +758,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                         Kullanıcı Adı {sortConfig?.key === 'username' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
                       </th>
                       <th>Email</th>
+                      <th className="sortable-header" onClick={() => requestSort('deviceId')}>
+                        Cihaz No {sortConfig?.key === 'deviceId' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
+                      </th>
                       <th className="sortable-header" onClick={() => requestSort('level')}>
                         Level {sortConfig?.key === 'level' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
                       </th>
@@ -796,6 +800,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                             </div>
                           </td>
                           <td>{user.email || <span className="no-data">Email yok</span>}</td>
+                          <td style={{ fontSize: '11px', color: '#64748b' }}>{user.deviceId || '-'}</td>
                           <td className="text-center">{user.level || 1}</td>
                           <td className="text-center">{user.score || 0}</td>
                           <td>
@@ -1027,7 +1032,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                       return a.localeCompare(b);
                     })
                     .map(([key, value]) => {
-                      const isReadOnly = ['createdAt', 'deviceName', 'userId', 'premiumUpgradedAt', 'premiumDowngradedAt', 'avatarKey', 'avatar'].includes(key);
+                      const isReadOnly = ['createdAt', 'deviceName', 'deviceId', 'userId', 'premiumUpgradedAt', 'premiumDowngradedAt', 'avatarKey', 'avatar'].includes(key);
                       const isObject = typeof value === 'object' && value !== null;
                       const isBoolean = typeof value === 'boolean';
 
