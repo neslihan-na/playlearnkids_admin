@@ -1,0 +1,14 @@
+.adventure-manager { padding: 28px; max-width: 1280px; margin: 0 auto; color: #1e293b; }
+.adventure-header { display: flex; justify-content: space-between; gap: 24px; align-items: center; margin-bottom: 20px; }
+.adventure-header h2 { margin: 0 0 6px; font-size: 28px; }
+.adventure-header p { margin: 0; color: #64748b; }
+.adventure-actions { display: flex; gap: 10px; }
+.adventure-actions button { border: 0; border-radius: 9px; padding: 12px 18px; color: #fff; cursor: pointer; font-weight: 700; }
+.adventure-actions button:disabled { opacity: .55; cursor: wait; }
+.adventure-save { background: #329a45; }.adventure-secondary { background: #64748b; }
+.adventure-message { padding: 12px 15px; margin-bottom: 18px; background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; border-radius: 9px; }
+.world-settings-list { display: grid; gap: 16px; }.world-setting-card { background: #fff; border: 1px solid #dbe5ef; border-radius: 12px; padding: 18px; box-shadow: 0 1px 3px rgba(15, 23, 42, .07); }
+.world-setting-title, .video-card-title { display: flex; justify-content: space-between; align-items: center; gap: 12px; }.world-setting-title strong { font-size: 19px; }.world-setting-title small { color: #64748b; margin-left: 8px; }.world-order { background: #3b82f6; color: #fff; display: inline-grid; place-items: center; width: 25px; height: 25px; border-radius: 50%; margin-right: 9px; font-weight: 700; }
+.toggle-label { display: inline-flex; align-items: center; gap: 7px; color: #475569; white-space: nowrap; }.toggle-label input { width: 17px; height: 17px; }
+.world-basic-fields, .world-video-grid { display: grid; gap: 12px; margin-top: 16px; }.world-basic-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }.world-video-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.world-setting-card label:not(.toggle-label) { display: grid; gap: 6px; color: #475569; font-size: 13px; font-weight: 600; }.world-setting-card input[type="text"], .world-setting-card label:not(.toggle-label) input { padding: 10px; border: 1px solid #cbd5e1; border-radius: 7px; font: inherit; font-weight: 400; }.world-video-card { padding: 14px; border-radius: 9px; border: 1px solid #e2e8f0; background: #f8fafc; display: grid; gap: 10px; }.video-card-title { margin-bottom: 2px; color: #1e293b; }.adventure-loading { padding: 50px; text-align: center; color: #64748b; }
+@media (max-width: 800px) { .adventure-header, .world-setting-title { align-items: flex-start; flex-direction: column; }.world-basic-fields, .world-video-grid { grid-template-columns: 1fr; } }

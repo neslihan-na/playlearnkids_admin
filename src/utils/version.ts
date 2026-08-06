@@ -1,1 +1,1 @@
-export const LAST_UPDATE = "10 Mart 2026, 09:14";
+export const LAST_UPDATE = "06 Ağustos 2026, 03:39";

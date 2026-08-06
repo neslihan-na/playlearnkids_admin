@@ -11,6 +11,7 @@ import NotificationManager from './NotificationManager';
 import MessagesManager from './MessagesManager';
 import HighFiveManager from './HighFiveManager';
 import BotManager from './BotManager';
+import AdventureContentManager from './AdventureContentManager';
 import { LAST_UPDATE } from '../utils/version';
 import './AdminPanel.css';
 
@@ -33,7 +34,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
   const [selectedDetailUser, setSelectedDetailUser] = useState<AdminPanelUser | null>(null);
   const [showUserEdit, setShowUserEdit] = useState(false);
   const [syncStatus, setSyncStatus] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'users' | 'stories' | 'similarity' | 'wordhunt' | 'videos' | 'notifications' | 'database' | 'admin-actions' | 'messages' | 'highfive' | 'bots'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'stories' | 'adventure' | 'similarity' | 'wordhunt' | 'videos' | 'notifications' | 'database' | 'admin-actions' | 'messages' | 'highfive' | 'bots'>('users');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [hasLoadedInitially, setHasLoadedInitially] = useState(false);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
@@ -605,6 +606,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
           </button>
 
           <button
+            className={`tab-button ${activeTab === 'adventure' ? 'active' : ''}`}
+            onClick={() => setActiveTab('adventure')}
+          >
+            🗺️ {!sidebarCollapsed && 'Macera Yönetimi'}
+          </button>
+
+          <button
             className={`tab-button ${activeTab === 'similarity' ? 'active' : ''}`}
             onClick={() => setActiveTab('similarity')}
           >
@@ -946,6 +954,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
             </div>
           ) : activeTab === 'stories' ? (
             <StoryManager />
+          ) : activeTab === 'adventure' ? (
+            <AdventureContentManager />
           ) : activeTab === 'similarity' ? (
             <SimilarityQuestionsManager />
           ) : activeTab === 'wordhunt' ? (
