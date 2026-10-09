@@ -16,7 +16,8 @@ type World = {
   videos: { intro: WorldVideo; outro: WorldVideo };
   missions: Record<string, unknown>;
 };
-type AdventureContent = { version: 1; updatedAt: number; worlds: Record<string, World> };
+type Journey = { id: string; order: number; title: string; enabled: boolean; worldIds: string[] };
+type AdventureContent = { version: 1; updatedAt: number; worlds: Record<string, World>; journeys: Record<string, Journey> };
 
 const emptyVideo = (): WorldVideo => ({ enabled: false, trUrl: '', enUrl: '' });
 
@@ -42,12 +43,21 @@ const createSeed = (): AdventureContent => ({
     videos: { intro: emptyVideo(), outro: emptyVideo() },
     missions: {},
   }])) as Record<string, World>,
+  journeys: {
+    journey_1: { id: 'journey_1', order: 0, title: 'Grup 1', enabled: true, worldIds: worldSeed.map(([id]) => id) },
+  },
 });
 
 const normalizeContent = (raw: Partial<AdventureContent> | null): AdventureContent => {
   const seed = createSeed();
   const storedWorlds = raw?.worlds || {};
-  const worlds = Object.fromEntries(Object.entries(seed.worlds).map(([id, fallback]) => {
+  const allWorldIds = Array.from(new Set([...Object.keys(seed.worlds), ...Object.keys(storedWorlds)]));
+  const worlds = Object.fromEntries(allWorldIds.map((id, order) => {
+    const fallback = seed.worlds[id] || {
+      id, order, title: 'Yeni Dünya', theme: 'forest', enabled: true,
+      scene: { backgroundId: 'forest-clean', heroId: 'player', guideId: '', introKey: '' },
+      videos: { intro: emptyVideo(), outro: emptyVideo() }, missions: {},
+    };
     const stored = storedWorlds[id] as Partial<World> | undefined;
     return [id, {
       ...fallback,
@@ -60,7 +70,20 @@ const normalizeContent = (raw: Partial<AdventureContent> | null): AdventureConte
       missions: stored?.missions || fallback.missions,
     }];
   }));
-  return { version: 1, updatedAt: raw?.updatedAt || Date.now(), worlds };
+  const storedJourneys = raw?.journeys || {};
+  const journeys = Object.keys(storedJourneys).length
+    ? Object.fromEntries(Object.entries(storedJourneys).map(([id, value]) => {
+        const journey = value as Partial<Journey>;
+        return [id, {
+          id,
+          order: Number(journey.order) || 0,
+          title: journey.title || `Grup ${Number(journey.order || 0) + 1}`,
+          enabled: journey.enabled !== false,
+          worldIds: Array.isArray(journey.worldIds) ? journey.worldIds.filter((worldId) => Boolean(worlds[worldId])) : [],
+        }];
+      })) as Record<string, Journey>
+    : { journey_1: { id: 'journey_1', order: 0, title: 'Grup 1', enabled: true, worldIds: Object.values(worlds).sort((a, b) => a.order - b.order).map((world) => world.id) } };
+  return { version: 1, updatedAt: raw?.updatedAt || Date.now(), worlds, journeys };
 };
 
 const AdventureContentManager: React.FC = () => {
@@ -102,6 +125,36 @@ const AdventureContentManager: React.FC = () => {
     });
   };
 
+  const updateJourney = (journeyId: string, patch: Partial<Journey>) => {
+    setContent((current) => ({ ...current, journeys: { ...current.journeys, [journeyId]: { ...current.journeys[journeyId], ...patch } } }));
+  };
+
+  const addJourney = () => {
+    setContent((current) => {
+      const order = Object.keys(current.journeys).length;
+      const id = `journey_${Date.now()}`;
+      return { ...current, journeys: { ...current.journeys, [id]: { id, order, title: `Grup ${order + 1}`, enabled: true, worldIds: [] } } };
+    });
+  };
+
+  const addWorld = () => {
+    setContent((current) => {
+      const id = `world_${Date.now()}`;
+      const order = Object.keys(current.worlds).length;
+      return {
+        ...current,
+        worlds: {
+          ...current.worlds,
+          [id]: {
+            id, order, title: `Yeni Dünya ${order + 1}`, theme: 'forest', enabled: true,
+            scene: { backgroundId: 'forest-clean', heroId: 'player', guideId: '', introKey: '' },
+            videos: { intro: emptyVideo(), outro: emptyVideo() }, missions: {},
+          },
+        },
+      };
+    });
+  };
+
   const save = async () => {
     setSaving(true);
     setMessage('');
@@ -120,7 +173,7 @@ const AdventureContentManager: React.FC = () => {
       <div className="adventure-header">
         <div>
           <h2>🗺️ Macera Yönetimi</h2>
-          <p>Dünya hikâyelerini ve uzaktan oynatılacak video bağlantılarını yönet.</p>
+          <p>Grup, dünya hikâyesi ve uzaktan oynatılacak video bağlantılarını yönet.</p>
         </div>
         <div className="adventure-actions">
           <button className="adventure-secondary" onClick={load} disabled={loading || saving}>↻ Yenile</button>
@@ -130,6 +183,21 @@ const AdventureContentManager: React.FC = () => {
 
       {message && <div className="adventure-message">{message}</div>}
       {loading ? <div className="adventure-loading">Yükleniyor…</div> : (
+        <>
+        <section className="journey-settings">
+          <div className="journey-settings-title"><div><h3>Yolculuk grupları</h3><p>Gruplar sırayla oynanır. Son açık grubun sonunda oyun tekrar başa dönmez.</p></div><button className="adventure-secondary" onClick={addJourney}>+ Grup ekle</button></div>
+          {Object.values(content.journeys).sort((a, b) => a.order - b.order).map((journey, index) => (
+            <div className="journey-card" key={journey.id}>
+              <span className="world-order">{index + 1}</span>
+              <label>Grup adı<input value={journey.title} onChange={(e) => updateJourney(journey.id, { title: e.target.value })} /></label>
+              <label className="toggle-label"><input type="checkbox" checked={journey.enabled} onChange={(e) => updateJourney(journey.id, { enabled: e.target.checked })} /> Grup açık</label>
+              <div className="journey-worlds">
+                {Object.values(content.worlds).sort((a, b) => a.order - b.order).map((world) => <label key={world.id} className="journey-world-option"><input type="checkbox" checked={journey.worldIds.includes(world.id)} onChange={(e) => updateJourney(journey.id, { worldIds: e.target.checked ? [...journey.worldIds, world.id] : journey.worldIds.filter((id) => id !== world.id) })} /> {world.title}</label>)}
+              </div>
+            </div>
+          ))}
+        </section>
+        <div className="world-settings-title"><h3>Dünyalar</h3><button className="adventure-secondary" onClick={addWorld}>+ Dünya ekle</button></div>
         <div className="world-settings-list">
           {Object.values(content.worlds).sort((a, b) => a.order - b.order).map((world) => (
             <section className="world-setting-card" key={world.id}>
@@ -160,6 +228,7 @@ const AdventureContentManager: React.FC = () => {
             </section>
           ))}
         </div>
+        </>
       )}
     </div>
   );

@@ -23,6 +23,9 @@ interface AdminPanelProps {
   onLogout: () => void;
 }
 
+type AdminTab = 'users' | 'stories' | 'adventure' | 'similarity' | 'wordhunt' | 'videos' | 'notifications' | 'database' | 'admin-actions' | 'messages' | 'highfive';
+type UserManagementTab = 'users' | 'bots';
+
 // User interface kaldırıldı - AdminPanelUser kullanılacak
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
@@ -34,8 +37,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
   const [selectedDetailUser, setSelectedDetailUser] = useState<AdminPanelUser | null>(null);
   const [showUserEdit, setShowUserEdit] = useState(false);
   const [syncStatus, setSyncStatus] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'users' | 'stories' | 'adventure' | 'similarity' | 'wordhunt' | 'videos' | 'notifications' | 'database' | 'admin-actions' | 'messages' | 'highfive' | 'bots'>('users');
+  const [activeTab, setActiveTab] = useState<AdminTab>('users');
+  const [userManagementTab, setUserManagementTab] = useState<UserManagementTab>('users');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mediaGroupOpen, setMediaGroupOpen] = useState(true);
+  const [gameQuestionsGroupOpen, setGameQuestionsGroupOpen] = useState(true);
+  const [interactionGroupOpen, setInteractionGroupOpen] = useState(true);
   const [hasLoadedInitially, setHasLoadedInitially] = useState(false);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const lastUnreadCount = useRef(0);
@@ -76,23 +83,183 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
 
   // Search state
   const [searchTerm, setSearchTerm] = useState('');
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({
+    source: '',
+    level: '',
+    role: '',
+    membership: '',
+    lastLoginFrom: '',
+    lastLoginTo: '',
+    createdAtFrom: '',
+    createdAtTo: ''
+  });
+  const [openDateFilter, setOpenDateFilter] = useState<'lastLogin' | 'createdAt' | null>(null);
+
+  const clearColumnFilters = () => {
+    setColumnFilters({
+      source: '',
+      level: '',
+      role: '',
+      membership: '',
+      lastLoginFrom: '',
+      lastLoginTo: '',
+      createdAtFrom: '',
+      createdAtTo: ''
+    });
+  };
+
+  const normalizeSearchText = (value: any) =>
+    String(value || '')
+      .toLocaleLowerCase('tr-TR')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/ı/g, 'i')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+
+  const compactSearchText = (value: string) => value.replace(/\s+/g, '');
+
+  const getDateRangeTime = useCallback((value: string, boundary: 'start' | 'end') => {
+    if (!value) return null;
+    const suffix = boundary === 'start' ? 'T00:00:00' : 'T23:59:59';
+    const time = new Date(`${value}${suffix}`).getTime();
+    return Number.isNaN(time) ? null : time;
+  }, []);
+
+  const isTimestampInRange = useCallback((timestamp: any, from: string, to: string) => {
+    if (!from && !to) return true;
+    if (!timestamp) return false;
+
+    const time = Number(timestamp);
+    if (Number.isNaN(time)) return false;
+
+    const fromTime = getDateRangeTime(from, 'start');
+    const toTime = getDateRangeTime(to, 'end');
+
+    if (fromTime !== null && time < fromTime) return false;
+    if (toTime !== null && time > toTime) return false;
+    return true;
+  }, [getDateRangeTime]);
+
+  const formatDateRangeLabel = (label: string, from: string, to: string) => {
+    if (!from && !to) return label;
+    const format = (value: string) => value ? new Date(`${value}T00:00:00`).toLocaleDateString('tr-TR') : '...';
+    return `${label}: ${format(from)} - ${format(to)}`;
+  };
+
+  const levelOptions = useMemo(() => {
+    const levels = new Set<number>();
+    allUsers.forEach(user => {
+      const level = Number(user.level || 1);
+      if (!Number.isNaN(level)) levels.add(level);
+    });
+    return Array.from(levels).sort((a, b) => a - b);
+  }, [allUsers]);
+
+  const getUserSourceMeta = useCallback((user: AdminPanelUser) => {
+    const key = String(user.key || user.userId || '').toLowerCase();
+    const deviceType = String(user.deviceType || '').toLowerCase();
+    const email = String(user.email || '').toLowerCase();
+
+    if (user.isSystemUser || key.startsWith('bot_')) {
+      return {
+        label: 'Bot',
+        className: 'source-bot',
+        title: 'Sistem/bot kullanıcısı olarak işaretlenmiş.'
+      };
+    }
+
+    if (
+      key.startsWith('user_android_') ||
+      key.startsWith('user_ios_') ||
+      key.startsWith('user_email_') ||
+      ['android', 'ios'].includes(deviceType) ||
+      Boolean(user.deviceId) ||
+      user.isGuest === true
+    ) {
+      return {
+        label: 'Mobil/App',
+        className: 'source-app',
+        title: 'Mobil uygulama akışından gelmiş kullanıcı gibi görünüyor.'
+      };
+    }
+
+    if (
+      !user.authUid &&
+      !user.deviceId &&
+      !deviceType &&
+      (email === 'email yok' || email.endsWith('@playlearnkids.com'))
+    ) {
+      return {
+        label: 'Admin/Test',
+        className: 'source-admin-test',
+        title: 'Admin panel veya geliştirme/test sırasında oluşturulmuş olabilir.'
+      };
+    }
+
+    return {
+      label: 'Bilinmiyor',
+      className: 'source-unknown',
+      title: 'Bu kullanıcı için kaynağı kesin gösteren alan bulunamadı.'
+    };
+  }, []);
 
   // Process users list: Filter -> Sort
   const filteredAndSortedUsers = useMemo(() => {
-    let result = [...allUsers];
+    let result = allUsers.filter(user => !user.isSystemUser);
 
-    // 1. Filter
+    // 1. Global Filter
     if (searchTerm.trim() !== '') {
-      const term = searchTerm.toLowerCase();
-      result = result.filter(user =>
-        (user.username || '').toLowerCase().includes(term) ||
-        (user.email || '').toLowerCase().includes(term) ||
-        (user.deviceId || '').toLowerCase().includes(term) ||
-        (user.key || '').toLowerCase().includes(term)
-      );
+      const terms = normalizeSearchText(searchTerm).split(/\s+/).filter(Boolean);
+      result = result.filter(user => {
+        const searchableParts = [
+          user.username,
+          user.name,
+          user.email,
+          user.deviceId,
+          user.key,
+          user.userId,
+          user.uid,
+          user.isSystemUser ? 'bot robot system sistem' : 'real gerçek normal user kullanıcı',
+          getUserSourceMeta(user).label,
+        ];
+        const searchableText = normalizeSearchText(searchableParts.join(' '));
+        const compactText = compactSearchText(searchableText);
+
+        return terms.every(term => (
+          searchableText.includes(term) ||
+          compactText.includes(compactSearchText(term))
+        ));
+      });
     }
 
-    // 2. Sort
+    // 2. Column Filters
+    Object.keys(columnFilters).forEach(key => {
+      const filterValue = columnFilters[key].trim().toLowerCase();
+      if (filterValue !== '') {
+        result = result.filter(user => {
+          let value: any = '';
+
+          if (key === 'role') {
+            value = user.isAdmin ? 'admin' : 'user';
+          } else if (key === 'membership') {
+            value = user.isPremium ? 'premium' : 'normal';
+          } else if (key === 'source') {
+            value = getUserSourceMeta(user).className;
+          } else if (key === 'lastLoginFrom' || key === 'lastLoginTo') {
+            return isTimestampInRange(user.lastLogin, columnFilters.lastLoginFrom, columnFilters.lastLoginTo);
+          } else if (key === 'createdAtFrom' || key === 'createdAtTo') {
+            return isTimestampInRange(user.createdAt, columnFilters.createdAtFrom, columnFilters.createdAtTo);
+          } else {
+            value = String((user as any)[key] || '').toLowerCase();
+          }
+
+          return value === filterValue;
+        });
+      }
+    });
+
+    // 3. Sort
     if (sortConfig) {
       result.sort((a: any, b: any) => {
         let valA = a[sortConfig.key];
@@ -111,7 +278,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
     }
 
     return result;
-  }, [allUsers, searchTerm, sortConfig]);
+  }, [allUsers, searchTerm, columnFilters, sortConfig, isTimestampInRange, getUserSourceMeta]);
+
+  const totalFilteredPages = Math.max(1, Math.ceil(filteredAndSortedUsers.length / usersPerPage));
+
+  useEffect(() => {
+    if (currentPage > totalFilteredPages) {
+      setCurrentPage(totalFilteredPages);
+    }
+  }, [currentPage, totalFilteredPages]);
 
   // Browser Notification & Sound Logic
   useEffect(() => {
@@ -564,7 +739,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
     <div className="admin-panel">
       <div className="admin-header">
         <div className="header-top">
-          <h1>👑 Admin Panel</h1>
+          <div className="header-inline">
+            <h1>👑 Admin Panel</h1>
+            <span className="header-subtitle">Yönetim Paneli</span>
+            <span className="current-user">Aktif Admin: {user.name}</span>
+            <span className="version-info">
+              <span className="info-label">🚀 Son Güncelleme:</span>
+              <span className="info-value">{LAST_UPDATE}</span>
+            </span>
+          </div>
           <button
             className="logout-button"
             onClick={onLogout}
@@ -572,12 +755,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
           >
             🚪 Çıkış
           </button>
-        </div>
-        <p className="header-subtitle">Yönetim Paneli</p>
-        <p className="current-user">Aktif Admin: {user.name}</p>
-        <div className="version-info">
-          <span className="info-label">🚀 Son Güncelleme:</span>
-          <span className="info-value">{LAST_UPDATE}</span>
         </div>
       </div>
 
@@ -598,71 +775,114 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
             👥 {!sidebarCollapsed && 'Kullanıcı Yönetimi'}
           </button>
 
-          <button
-            className={`tab-button ${activeTab === 'stories' ? 'active' : ''}`}
-            onClick={() => setActiveTab('stories')}
-          >
-            📚 {!sidebarCollapsed && 'Hikaye Yönetimi'}
-          </button>
-
-          <button
-            className={`tab-button ${activeTab === 'adventure' ? 'active' : ''}`}
-            onClick={() => setActiveTab('adventure')}
-          >
-            🗺️ {!sidebarCollapsed && 'Macera Yönetimi'}
-          </button>
-
-          <button
-            className={`tab-button ${activeTab === 'similarity' ? 'active' : ''}`}
-            onClick={() => setActiveTab('similarity')}
-          >
-            🎯 {!sidebarCollapsed && 'Benzerlik Soruları'}
-          </button>
-
-          <button
-            className={`tab-button ${activeTab === 'wordhunt' ? 'active' : ''}`}
-            onClick={() => setActiveTab('wordhunt')}
-          >
-            🔍 {!sidebarCollapsed && 'Word Hunt Soruları'}
-          </button>
-
-          <button
-            className={`tab-button ${activeTab === 'videos' ? 'active' : ''}`}
-            onClick={() => setActiveTab('videos')}
-          >
-            🎥 {!sidebarCollapsed && 'Video Yönetimi'}
-          </button>
-
-          <button
-            className={`tab-button ${activeTab === 'notifications' ? 'active' : ''}`}
-            onClick={() => setActiveTab('notifications')}
-          >
-            📬 {!sidebarCollapsed && 'Bildirim Gönder'}
-          </button>
-
-          <button
-            className={`tab-button ${activeTab === 'messages' ? 'active' : ''}`}
-            onClick={() => setActiveTab('messages')}
-          >
-            💬 {!sidebarCollapsed && 'Mesajlar'}
-            {unreadMessageCount > 0 && (
-              <span className="notification-badge">{unreadMessageCount}</span>
+          <div className={`sidebar-group ${['stories', 'videos'].includes(activeTab) ? 'active' : ''}`}>
+            {!sidebarCollapsed && (
+              <button
+                type="button"
+                className="sidebar-group-title"
+                onClick={() => setMediaGroupOpen((isOpen) => !isOpen)}
+                aria-expanded={mediaGroupOpen}
+              >
+                <span>🎞️ Medya Yönetimi</span>
+                <span className="sidebar-group-caret">{mediaGroupOpen ? '▾' : '▸'}</span>
+              </button>
             )}
-          </button>
+            {mediaGroupOpen && (
+              <div className="sidebar-submenu">
+                <button
+                  className={`tab-button submenu ${activeTab === 'stories' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('stories')}
+                >
+                  📚 {!sidebarCollapsed && 'Hikaye Yönetimi'}
+                </button>
+                <button
+                  className={`tab-button submenu ${activeTab === 'videos' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('videos')}
+                >
+                  🎥 {!sidebarCollapsed && 'Video Yönetimi'}
+                </button>
+              </div>
+            )}
+          </div>
 
-          <button
-            className={`tab-button ${activeTab === 'highfive' ? 'active' : ''}`}
-            onClick={() => setActiveTab('highfive')}
-          >
-            ✋ {!sidebarCollapsed && 'High Five Gönder'}
-          </button>
+          <div className={`sidebar-group ${['adventure', 'similarity', 'wordhunt'].includes(activeTab) ? 'active' : ''}`}>
+            {!sidebarCollapsed && (
+              <button
+                type="button"
+                className="sidebar-group-title"
+                onClick={() => setGameQuestionsGroupOpen((isOpen) => !isOpen)}
+                aria-expanded={gameQuestionsGroupOpen}
+              >
+                <span>🎮 Oyun Soruları</span>
+                <span className="sidebar-group-caret">{gameQuestionsGroupOpen ? '▾' : '▸'}</span>
+              </button>
+            )}
+            {gameQuestionsGroupOpen && (
+              <div className="sidebar-submenu">
+                <button
+                  className={`tab-button submenu ${activeTab === 'adventure' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('adventure')}
+                >
+                  🗺️ {!sidebarCollapsed && 'Macera Yönetimi'}
+                </button>
 
-          <button
-            className={`tab-button ${activeTab === 'bots' ? 'active' : ''}`}
-            onClick={() => setActiveTab('bots')}
-          >
-            🤖 {!sidebarCollapsed && 'Bot Yönetimi'}
-          </button>
+                <button
+                  className={`tab-button submenu ${activeTab === 'similarity' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('similarity')}
+                >
+                  🎯 {!sidebarCollapsed && 'Benzerlik Soruları'}
+                </button>
+
+                <button
+                  className={`tab-button submenu ${activeTab === 'wordhunt' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('wordhunt')}
+                >
+                  🔍 {!sidebarCollapsed && 'Word Hunt Soruları'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className={`sidebar-group ${['notifications', 'messages', 'highfive'].includes(activeTab) ? 'active' : ''}`}>
+            {!sidebarCollapsed && (
+              <button
+                type="button"
+                className="sidebar-group-title"
+                onClick={() => setInteractionGroupOpen((isOpen) => !isOpen)}
+                aria-expanded={interactionGroupOpen}
+              >
+                <span>🤝 Etkileşim Yönetimi</span>
+                <span className="sidebar-group-caret">{interactionGroupOpen ? '▾' : '▸'}</span>
+              </button>
+            )}
+            {interactionGroupOpen && (
+              <div className="sidebar-submenu">
+                <button
+                  className={`tab-button submenu ${activeTab === 'notifications' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('notifications')}
+                >
+                  📬 {!sidebarCollapsed && 'Bildirim Gönder'}
+                </button>
+
+                <button
+                  className={`tab-button submenu ${activeTab === 'messages' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('messages')}
+                >
+                  💬 {!sidebarCollapsed && 'Mesajlar'}
+                  {unreadMessageCount > 0 && (
+                    <span className="notification-badge">{unreadMessageCount}</span>
+                  )}
+                </button>
+
+                <button
+                  className={`tab-button submenu ${activeTab === 'highfive' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('highfive')}
+                >
+                  ✋ {!sidebarCollapsed && 'High Five Gönder'}
+                </button>
+              </div>
+            )}
+          </div>
 
           <div className="sidebar-divider"></div>
 
@@ -679,43 +899,60 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
           {activeTab === 'users' ? (
             <div className="admin-section users-section">
               <div className="section-header">
-                <h2>👥 Kullanıcı Listesi ({allUsers.length})</h2>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <button
-                    className="admin-button success"
-                    onClick={() => setShowCreateUser(true)}
-                    style={{ padding: '8px 16px', fontSize: '14px' }}
-                  >
-                    ➕ Yeni Kullanıcı
-                  </button>
-                  <div className="search-bar">
-                    <input
-                      type="text"
-                      className="search-input"
-                      placeholder="Kullanıcı adı, email veya ID ile ara..."
-                      value={searchTerm}
-                      onChange={(e) => {
-                        setSearchTerm(e.target.value);
-                        setCurrentPage(1); // Aramada sayfayı 1 yap
-                      }}
-                      style={{
-                        padding: '10px 15px',
-                        borderRadius: '8px',
-                        border: '1px solid #e2e8f0',
-                        width: '300px',
-                        fontSize: '14px'
-                      }}
-                    />
+                <div className="users-header-left">
+                  <div className="management-subtabs" role="tablist" aria-label="Kullanıcı yönetimi bölümleri">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={userManagementTab === 'users'}
+                      className={`management-subtab ${userManagementTab === 'users' ? 'active' : ''}`}
+                      onClick={() => setUserManagementTab('users')}
+                    >
+                      👥 Kullanıcılar
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={userManagementTab === 'bots'}
+                      className={`management-subtab ${userManagementTab === 'bots' ? 'active' : ''}`}
+                      onClick={() => setUserManagementTab('bots')}
+                    >
+                      🤖 Bot Kullanıcılar
+                    </button>
                   </div>
+                  <h2>👥 Kullanıcı Listesi ({filteredAndSortedUsers.length})</h2>
+                </div>
+                <div className="users-header-actions">
+                  {userManagementTab === 'users' && (
+                    <>
+                      <button
+                        className="admin-button success"
+                        onClick={() => setShowCreateUser(true)}
+                      >
+                        ➕ Yeni Kullanıcı
+                      </button>
+                      <div className="search-bar">
+                        <input
+                          type="text"
+                          className="search-input"
+                          placeholder="Kullanıcı adı, email, cihaz no veya ID ile ara..."
+                          value={searchTerm}
+                          onChange={(e) => {
+                            setSearchTerm(e.target.value);
+                            setCurrentPage(1); // Aramada sayfayı 1 yap
+                          }}
+                        />
+                      </div>
+                    </>
+                  )}
                   <button
                     className="admin-button secondary"
                     onClick={handleGetAllUsers}
                     disabled={isLoading}
-                    style={{ padding: '8px 16px', fontSize: '14px' }}
                   >
                     🔄 Yenile
                   </button>
-                  {selectedUserKeys.length > 0 && (
+                  {userManagementTab === 'users' && selectedUserKeys.length > 0 && (
                     <div style={{ display: 'flex', gap: '8px' }}>
                       <button
                         className="admin-button info"
@@ -752,10 +989,166 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                 </div>
               </div>
 
+              {userManagementTab === 'users' ? (
+                <>
+              <div className="user-filter-panel compact-filter-panel">
+                <div className="filter-fields-row">
+                    <div className="filter-field">
+                      <select
+                        className="column-filter-select"
+                        aria-label="Kaynak"
+                        value={columnFilters.source}
+                        onChange={(e) => {
+                          setColumnFilters(prev => ({ ...prev, source: e.target.value }));
+                          setCurrentPage(1);
+                        }}
+                      >
+                        <option value="">Kaynak: Hepsi</option>
+                        <option value="source-app">Mobil/App</option>
+                        <option value="source-admin-test">Admin/Test</option>
+                        <option value="source-unknown">Bilinmiyor</option>
+                        <option value="source-bot">Bot</option>
+                      </select>
+                    </div>
+                    <div className="filter-field">
+                      <select
+                        className="column-filter-select"
+                        aria-label="Yetki"
+                        value={columnFilters.role}
+                        onChange={(e) => {
+                          setColumnFilters(prev => ({ ...prev, role: e.target.value }));
+                          setCurrentPage(1);
+                        }}
+                      >
+                        <option value="">Yetki: Hepsi</option>
+                        <option value="admin">Admin</option>
+                        <option value="user">User</option>
+                      </select>
+                    </div>
+                    <div className="filter-field">
+                      <select
+                        className="column-filter-select"
+                        aria-label="Üyelik"
+                        value={columnFilters.membership}
+                        onChange={(e) => {
+                          setColumnFilters(prev => ({ ...prev, membership: e.target.value }));
+                          setCurrentPage(1);
+                        }}
+                      >
+                        <option value="">Üyelik: Hepsi</option>
+                        <option value="premium">Premium</option>
+                        <option value="normal">Normal</option>
+                      </select>
+                    </div>
+                    <div className="filter-field">
+                      <select
+                        className="column-filter-select"
+                        aria-label="Level"
+                        value={columnFilters.level}
+                        onChange={(e) => {
+                          setColumnFilters(prev => ({ ...prev, level: e.target.value }));
+                          setCurrentPage(1);
+                        }}
+                      >
+                        <option value="">Level: Hepsi</option>
+                        {levelOptions.map(level => (
+                          <option key={level} value={String(level)}>Level {level}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="filter-field date-range-menu">
+                      <button
+                        type="button"
+                        className="date-range-trigger"
+                        onClick={() => setOpenDateFilter(openDateFilter === 'lastLogin' ? null : 'lastLogin')}
+                      >
+                        {formatDateRangeLabel('Son Giriş', columnFilters.lastLoginFrom, columnFilters.lastLoginTo)}
+                      </button>
+                      {openDateFilter === 'lastLogin' && (
+                        <div className="date-range-popover">
+                          <input
+                            type="date"
+                            className="column-filter-input"
+                            value={columnFilters.lastLoginFrom}
+                            onChange={(e) => {
+                              setColumnFilters(prev => ({ ...prev, lastLoginFrom: e.target.value }));
+                              setCurrentPage(1);
+                            }}
+                          />
+                          <input
+                            type="date"
+                            className="column-filter-input"
+                            value={columnFilters.lastLoginTo}
+                            onChange={(e) => {
+                              setColumnFilters(prev => ({ ...prev, lastLoginTo: e.target.value }));
+                              setCurrentPage(1);
+                            }}
+                          />
+                          <div className="date-range-actions">
+                            <button type="button" onClick={() => setColumnFilters(prev => ({ ...prev, lastLoginFrom: '', lastLoginTo: '' }))}>Temizle</button>
+                            <button type="button" onClick={() => setOpenDateFilter(null)}>Tamam</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="filter-field date-range-menu">
+                      <button
+                        type="button"
+                        className="date-range-trigger"
+                        onClick={() => setOpenDateFilter(openDateFilter === 'createdAt' ? null : 'createdAt')}
+                      >
+                        {formatDateRangeLabel('Kayıt Tarihi', columnFilters.createdAtFrom, columnFilters.createdAtTo)}
+                      </button>
+                      {openDateFilter === 'createdAt' && (
+                        <div className="date-range-popover align-right">
+                          <input
+                            type="date"
+                            className="column-filter-input"
+                            value={columnFilters.createdAtFrom}
+                            onChange={(e) => {
+                              setColumnFilters(prev => ({ ...prev, createdAtFrom: e.target.value }));
+                              setCurrentPage(1);
+                            }}
+                          />
+                          <input
+                            type="date"
+                            className="column-filter-input"
+                            value={columnFilters.createdAtTo}
+                            onChange={(e) => {
+                              setColumnFilters(prev => ({ ...prev, createdAtTo: e.target.value }));
+                              setCurrentPage(1);
+                            }}
+                          />
+                          <div className="date-range-actions">
+                            <button type="button" onClick={() => setColumnFilters(prev => ({ ...prev, createdAtFrom: '', createdAtTo: '' }))}>Temizle</button>
+                            <button type="button" onClick={() => setOpenDateFilter(null)}>Tamam</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {(Object.values(columnFilters).some(v => v !== '') || searchTerm !== '') && (
+                      <button
+                        type="button"
+                        className="clear-filters-btn"
+                        onClick={() => {
+                          clearColumnFilters();
+                          setSearchTerm('');
+                          setOpenDateFilter(null);
+                          setCurrentPage(1);
+                        }}
+                        title="Tüm Filtreleri Temizle"
+                      >
+                        Temizle
+                      </button>
+                    )}
+                      </div>
+              </div>
+
               <div className="user-table-container">
                 <table className="user-sql-table">
                   <thead>
                     <tr>
+                      <th className="col-row-number">ID</th>
                       <th className="col-index">
                         <input
                           type="checkbox"
@@ -764,22 +1157,39 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                         />
                       </th>
                       <th className="sortable-header" onClick={() => requestSort('username')}>
-                        Kullanıcı Adı {sortConfig?.key === 'username' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
+                        <div className="header-content">
+                          Kullanıcı Adı {sortConfig?.key === 'username' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
+                        </div>
                       </th>
+                      <th>Kullanıcı ID</th>
+                      <th>Kaynak</th>
                       <th>Email</th>
                       <th className="sortable-header" onClick={() => requestSort('deviceId')}>
-                        Cihaz No {sortConfig?.key === 'deviceId' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
+                        <div className="header-content">
+                          Cihaz No {sortConfig?.key === 'deviceId' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
+                        </div>
                       </th>
                       <th className="sortable-header" onClick={() => requestSort('level')}>
-                        Level {sortConfig?.key === 'level' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
+                        <div className="header-content">
+                          Level {sortConfig?.key === 'level' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
+                        </div>
                       </th>
                       <th className="sortable-header" onClick={() => requestSort('score')}>
-                        Puan {sortConfig?.key === 'score' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
+                        <div className="header-content">
+                          Puan {sortConfig?.key === 'score' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
+                        </div>
                       </th>
                       <th>Yetki</th>
                       <th>Üyelik</th>
+                      <th className="sortable-header" onClick={() => requestSort('lastLogin')}>
+                        <div className="header-content">
+                          Son Giriş {sortConfig?.key === 'lastLogin' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
+                        </div>
+                      </th>
                       <th className="sortable-header" onClick={() => requestSort('createdAt')}>
-                        Kayıt Tarihi {sortConfig?.key === 'createdAt' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
+                        <div className="header-content">
+                          Kayıt Tarihi {sortConfig?.key === 'createdAt' && (sortConfig.direction === 'asc' ? '🔼' : '🔽')}
+                        </div>
                       </th>
                       <th className="col-actions">İşlemler</th>
                     </tr>
@@ -790,24 +1200,32 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                       const indexOfFirstUser = indexOfLastUser - usersPerPage;
                       const currentUsers = filteredAndSortedUsers.slice(indexOfFirstUser, indexOfLastUser);
 
-                      return currentUsers.map((user, index) => (
-                        <tr key={user.key || index} className={selectedUserKeys.includes(user.key) ? 'selected-row' : ''}>
-                          <td className="col-index text-center">
-                            <input
-                              type="checkbox"
-                              checked={selectedUserKeys.includes(user.key)}
-                              onChange={() => handleToggleSelectUser(user.key)}
-                            />
-                          </td>
-                          <td className="col-username">
-                            <div className="user-name-cell">
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                <strong>{user.username}</strong>
-                                {user.isSystemUser && <span className="badge system small" style={{ fontSize: '10px', padding: '2px 6px' }}>🤖 Bot</span>}
+                      return currentUsers.map((user, index) => {
+                        const sourceMeta = getUserSourceMeta(user);
+
+                        return (
+                          <tr key={user.key || index} className={selectedUserKeys.includes(user.key) ? 'selected-row' : ''}>
+                            <td className="col-row-number text-center">{indexOfFirstUser + index + 1}</td>
+                            <td className="col-index text-center">
+                              <input
+                                type="checkbox"
+                                checked={selectedUserKeys.includes(user.key)}
+                                onChange={() => handleToggleSelectUser(user.key)}
+                              />
+                            </td>
+                            <td className="col-username">
+                              <div className="user-name-cell">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                  <strong>{user.username}</strong>
+                                </div>
                               </div>
-                              <span className="user-key-hint">{user.key}</span>
-                            </div>
-                          </td>
+                            </td>
+                            <td className="user-id-cell">{user.key}</td>
+                            <td>
+                              <span className={`source-badge ${sourceMeta.className}`} title={sourceMeta.title}>
+                                {sourceMeta.label}
+                              </span>
+                            </td>
                           <td>{user.email || <span className="no-data">Email yok</span>}</td>
                           <td style={{ fontSize: '11px', color: '#64748b' }}>{user.deviceId || '-'}</td>
                           <td className="text-center">{user.level || 1}</td>
@@ -828,6 +1246,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                                 </span>
                               )}
                             </div>
+                          </td>
+                          <td className="text-center" style={{ fontSize: '11px', color: '#64748b' }}>
+                            {user.lastLogin ? new Date(user.lastLogin).toLocaleDateString('tr-TR') : '-'}
                           </td>
                           <td className="text-center" style={{ fontSize: '11px', color: '#64748b' }}>
                             {user.createdAt ? new Date(user.createdAt).toLocaleDateString('tr-TR') : '-'}
@@ -887,7 +1308,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                             </div>
                           </td>
                         </tr>
-                      ));
+                        );
+                      });
                     })()}
                   </tbody>
                 </table>
@@ -919,7 +1341,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                       Önceki
                     </button>
                     {(() => {
-                      const totalPages = Math.ceil(allUsers.length / usersPerPage);
+                      const totalPages = totalFilteredPages;
                       const pages = [];
                       let startPage = Math.max(1, currentPage - 2);
                       let endPage = Math.min(totalPages, startPage + 4);
@@ -942,7 +1364,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                       return pages;
                     })()}
                     <button
-                      disabled={currentPage === Math.ceil(allUsers.length / usersPerPage)}
+                      disabled={currentPage === totalFilteredPages}
                       onClick={() => setCurrentPage(prev => prev + 1)}
                       className="page-btn nav"
                     >
@@ -951,6 +1373,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
                   </div>
                 </div>
               </div>
+                </>
+              ) : (
+                <BotManager users={allUsers} onRefresh={handleGetAllUsers} isLoading={isLoading} />
+              )}
             </div>
           ) : activeTab === 'stories' ? (
             <StoryManager />
@@ -968,8 +1394,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onLogout }) => {
             <MessagesManager />
           ) : activeTab === 'highfive' ? (
             <HighFiveManager users={allUsers} onRefresh={handleGetAllUsers} />
-          ) : activeTab === 'bots' ? (
-            <BotManager users={allUsers} onRefresh={handleGetAllUsers} isLoading={isLoading} />
           ) : activeTab === 'admin-actions' ? (
             <>
               <div className="admin-section">
